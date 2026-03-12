@@ -33,6 +33,8 @@ Open `http://127.0.0.1:5000` in your browser.
 
 This project cannot run on GitHub Pages because it needs a Python backend for Flask, MediaPipe, and TensorFlow Lite. GitHub stores the code, but it does not run this server-side app for you.
 
+Python is pinned to `3.11.11` for compatibility with `tensorflow==2.13.1` via `.python-version` and `runtime.txt`.
+
 The simplest option is Render:
 
 1. Push the repository to GitHub.
@@ -45,6 +47,16 @@ If you configure it manually on Render, use:
 ```bash
 Build command: pip install -r requirements.txt
 Start command: gunicorn --bind 0.0.0.0:$PORT app:app
+```
+
+Docker option on Render:
+
+1. Create service using `Environment: Docker`.
+2. Render will use `Dockerfile` in this repository.
+3. If needed, override start command with:
+
+```bash
+gunicorn --bind 0.0.0.0:$PORT app:app
 ```
 
 Other hosts that can run this app:

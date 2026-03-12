@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+*.npy
+dataset/
+convertenv/
+signenv/
+mobile-app/
+mobile-app-export/
+model.h5
+scaler.pkl
+training_history.png
