@@ -16,6 +16,8 @@ LABELS_JSON = "labels.json"
 SEQUENCE_LEN = 30
 N_FEATURES = 225
 THRESHOLD = 0.85
+PROCESS_WIDTH = 320
+PROCESS_HEIGHT = 240
 
 app = Flask(__name__)
 
@@ -112,6 +114,8 @@ def decode_image(data_url: str) -> np.ndarray:
     frame_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if frame_bgr is None:
         raise ValueError("Invalid image data")
+    # Reduce CPU load on hosted instances while preserving landmarks quality.
+    frame_bgr = cv2.resize(frame_bgr, (PROCESS_WIDTH, PROCESS_HEIGHT))
     return frame_bgr
 
 

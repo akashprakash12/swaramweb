@@ -413,15 +413,18 @@
 
     <script>
         const config = {
-            videoWidth: 640,
-            videoHeight: 480,
+            videoWidth: 320,
+            videoHeight: 240,
             clientId: 'client_' + Math.random().toString(36).substr(2, 9),
             confidenceThreshold: 0.85,
-            selectedCameraId: null
+            selectedCameraId: null,
+            minSendIntervalMs: 220
         };
 
         let isRunning = false;
         let stream = null;
+        let requestInFlight = false;
+        let lastSendAt = 0;
         const video = document.getElementById('video');
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -542,11 +545,20 @@
         async function sendFrame() {
             if (!isRunning) return;
 
+            const now = Date.now();
+            if (requestInFlight || (now - lastSendAt) < config.minSendIntervalMs) {
+                requestAnimationFrame(sendFrame);
+                return;
+            }
+
             try {
                 // Ensure video is ready
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    requestInFlight = true;
+                    lastSendAt = now;
+
                     ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
-                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.6);
 
                     if (!imageData || imageData.length < 100) {
                         console.warn('Canvas data appears empty');
@@ -569,11 +581,18 @@
                         displayPrediction(data);
                         updateStatus('Processing...', true);
                     } else {
+                        const errMsg = data?.error || 'Prediction request failed';
+                        showError(errMsg);
+                        updateStatus('Prediction error');
                         console.error('Prediction failed:', data);
                     }
                 }
             } catch (error) {
+                showError('Network or server error: ' + error.message);
+                updateStatus('Connection error');
                 console.error('Send frame error:', error);
+            } finally {
+                requestInFlight = false;
             }
 
             requestAnimationFrame(sendFrame);
