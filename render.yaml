@@ -5,3 +5,12 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: MIN_PREDICT_FRAMES
+        value: "30"
+      - key: PREDICTION_THRESHOLD
+        value: "0.85"
+      - key: PROCESS_WIDTH
+        value: "320"
+      - key: PROCESS_HEIGHT
+        value: "240"

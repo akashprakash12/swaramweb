@@ -2,126 +2,311 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gesture Recognition - Swaram</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Sign Language to Malayalam - Gesture Recognition</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
+            padding: 16px;
         }
 
         .container {
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            border-radius: 28px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.25);
             overflow: hidden;
-            max-width: 900px;
+            max-width: 1200px;
             width: 100%;
+            transition: all 0.3s ease;
         }
 
+        /* Header Styles */
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 40px 20px;
+            padding: 32px 20px;
             text-align: center;
         }
 
         .header h1 {
-            font-size: 2.5em;
+            font-size: clamp(1.8rem, 5vw, 2.8rem);
             margin-bottom: 10px;
             font-weight: 700;
+            letter-spacing: -0.5px;
         }
 
         .header p {
-            font-size: 1.1em;
+            font-size: clamp(0.9rem, 3vw, 1.2rem);
             opacity: 0.95;
         }
 
-        .content {
-            padding: 40px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            align-items: start;
+        .language-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 16px;
+            border-radius: 40px;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
         }
 
+        /* Tab Navigation */
+        .tab-container {
+            display: flex;
+            padding: 16px 16px 0 16px;
+            gap: 10px;
+            background: #f8fafc;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            flex: 1;
+            min-width: 120px;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 16px 16px 0 0;
+            font-size: clamp(0.9rem, 3vw, 1rem);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #e2e8f0;
+            color: #4a5568;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .tab i {
+            font-size: 1.2rem;
+        }
+
+        /* Camera Sections */
+        .camera-section {
+            display: none;
+            padding: 24px;
+            background: #f8fafc;
+        }
+
+        .camera-section.active {
+            display: block;
+        }
+
+        /* Main Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .camera-section {
+                padding: 16px;
+            }
+        }
+
+        /* Video Container */
         .video-section {
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 16px;
         }
 
         .video-container {
             position: relative;
-            background: #000;
-            border-radius: 15px;
+            background: #1a202c;
+            border-radius: 24px;
             overflow: hidden;
             width: 100%;
             aspect-ratio: 4/3;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
         }
 
-        #video {
+        #video, #cameraFeed {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1);
         }
 
+        #landmarkCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #video {
+            transform: scaleX(-1); /* Mirror for webcam */
+        }
+
+        #landmarkCanvas {
+            transform: scaleX(-1); /* Match webcam mirror */
+        }
+
+        #cameraFeed {
+            transform: none; /* No mirror for IP camera */
+        }
+
+        .video-overlay {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .indicator.active {
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* IP Camera Input */
+        .ip-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin: 16px 0;
+        }
+
+        .ip-camera-input {
+            width: 100%;
+            padding: 14px 18px;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .ip-camera-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .ip-examples {
+            font-size: 0.85rem;
+            color: #718096;
+            background: #edf2f7;
+            padding: 10px 14px;
+            border-radius: 12px;
+            margin-top: 8px;
+        }
+
+        .ip-examples span {
+            font-family: monospace;
+            background: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin: 0 4px 4px 0;
+            display: inline-block;
+            font-size: 0.8rem;
+        }
+
+        /* Camera Select Dropdown */
+        .camera-select {
+            width: 100%;
+            padding: 14px 18px;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            font-size: 0.95rem;
+            background: white;
+            cursor: pointer;
+            margin-bottom: 16px;
+        }
+
+        .camera-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* Buttons */
         .controls {
             display: flex;
-            gap: 10px;
+            gap: 12px;
             flex-wrap: wrap;
+            margin: 16px 0;
         }
 
         .btn {
-            padding: 12px 24px;
+            padding: 14px 24px;
             border: none;
-            border-radius: 10px;
-            font-size: 1em;
+            border-radius: 16px;
+            font-size: clamp(0.9rem, 3vw, 1rem);
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
             flex: 1;
-            min-width: 150px;
+            min-width: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .btn-primary {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:active {
-            transform: translateY(0);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
         }
 
         .btn-secondary {
-            background: #f0f0f0;
-            color: #333;
-            border: 2px solid #e0e0e0;
+            background: white;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
         }
 
-        .btn-secondary:hover {
-            background: #e8e8e8;
-            border-color: #d0d0d0;
+        .btn-secondary:hover:not(:disabled) {
+            background: #f7fafc;
+            border-color: #cbd5e0;
         }
 
         .btn:disabled {
@@ -130,75 +315,104 @@
             transform: none !important;
         }
 
+        /* Predictions Section */
         .predictions-section {
             display: flex;
             flex-direction: column;
             gap: 20px;
         }
 
-        .status-box {
-            background: #f8f9fa;
-            border-radius: 15px;
+        .status-card {
+            background: white;
+            border-radius: 20px;
             padding: 20px;
-            text-align: center;
-            border: 2px solid #e9ecef;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
         .status-label {
-            font-size: 0.95em;
-            color: #666;
-            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: #718096;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         .frames-counter {
-            font-size: 1.5em;
-            color: #667eea;
+            font-size: 1.8rem;
             font-weight: 700;
+            color: #667eea;
+            line-height: 1;
         }
 
+        .frames-text {
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #edf2f7;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        /* Prediction Result */
         .prediction-result {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            border-radius: 15px;
-            padding: 25px;
+            border-radius: 20px;
+            padding: 24px;
             text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .prediction-result.accepted {
+            box-shadow: 0 0 0 3px #4ade80, 0 10px 30px rgba(74, 222, 128, 0.3);
+        }
+
+        .prediction-result.rejected {
+            box-shadow: 0 0 0 3px #ef4444, 0 10px 30px rgba(239, 68, 68, 0.3);
         }
 
         .prediction-label {
-            font-size: 0.85em;
+            font-size: 0.85rem;
             opacity: 0.9;
             margin-bottom: 10px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: 600;
+            letter-spacing: 1px;
         }
 
         .prediction-text {
-            font-size: 2.2em;
-            font-weight: 700;
+            font-size: clamp(2rem, 6vw, 3.5rem);
+            font-weight: 800;
             margin-bottom: 15px;
-        }
-
-        .confidence-container {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .confidence-label {
-            font-size: 0.85em;
-            opacity: 0.9;
-            text-align: left;
+            word-break: break-word;
         }
 
         .confidence-bar {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 10px;
-            height: 8px;
+            height: 10px;
             overflow: hidden;
+            margin: 10px 0;
         }
 
         .confidence-fill {
@@ -208,69 +422,91 @@
             transition: width 0.3s ease;
         }
 
-        .accepted {
-            border: 3px solid #4ade80;
-            background: rgba(74, 222, 128, 0.1);
-        }
-
-        .rejected {
-            border: 3px solid #ef4444;
-            background: rgba(239, 68, 68, 0.1);
-        }
-
+        /* Top Predictions */
         .top-predictions {
-            background: #f8f9fa;
-            border-radius: 15px;
+            background: white;
+            border-radius: 20px;
             padding: 20px;
         }
 
         .top-predictions-title {
-            font-size: 0.95em;
-            color: #666;
+            font-size: 0.95rem;
+            color: #4a5568;
             margin-bottom: 15px;
             font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .prediction-item {
+        .predictions-list {
+            list-style: none;
+        }
+
+        .predictions-list li {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 12px 0;
-            border-bottom: 1px solid #e9ecef;
-            font-size: 0.95em;
+            border-bottom: 1px solid #edf2f7;
+            font-size: 1rem;
         }
 
-        .prediction-item:last-child {
+        .predictions-list li:last-child {
             border-bottom: none;
         }
 
-        .prediction-item-label {
-            font-weight: 600;
-            color: #333;
+        .prediction-rank {
+            width: 28px;
+            height: 28px;
+            background: #edf2f7;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #4a5568;
+            margin-right: 12px;
         }
 
-        .prediction-item-confidence {
+        .prediction-item {
+            display: flex;
+            align-items: center;
+            flex: 1;
+        }
+
+        .prediction-label {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .prediction-confidence {
             color: #667eea;
             font-weight: 700;
         }
 
+        /* Error Box */
         .error-box {
-            background: #fee;
-            border: 2px solid #fcc;
-            color: #c33;
-            border-radius: 15px;
-            padding: 20px;
+            background: #fff5f5;
+            border: 2px solid #feb2b2;
+            color: #c53030;
+            border-radius: 16px;
+            padding: 16px;
             text-align: center;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
+        /* Loading Spinner */
         .loading {
             display: inline-block;
             width: 20px;
             height: 20px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #667eea;
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
@@ -280,171 +516,454 @@
             100% { transform: rotate(360deg); }
         }
 
-        .indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-
-        .indicator.active {
-            background: #4ade80;
-            box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
-        }
-
-        .indicator.inactive {
-            background: #ef4444;
-        }
-
-        @media (max-width: 768px) {
-            .content {
-                grid-template-columns: 1fr;
-                gap: 30px;
-            }
-
-            .header h1 {
-                font-size: 2em;
-            }
-
-            .controls {
-                flex-direction: column;
-            }
-
-            .btn {
-                flex: none;
-            }
-        }
-
-        .info-text {
-            font-size: 0.9em;
-            color: #888;
+        /* Footer */
+        .footer {
+            background: #f8fafc;
+            padding: 16px 24px;
             text-align: center;
-            margin-top: 15px;
+            border-top: 1px solid #e2e8f0;
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        /* Utility Classes */
+        .hidden {
+            display: none !important;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .mt-2 {
+            margin-top: 8px;
+        }
+
+        .mt-4 {
+            margin-top: 16px;
+        }
+
+        .gap-2 {
+            gap: 8px;
+        }
+
+        .flex {
+            display: flex;
+            align-items: center;
         }
 
         .badge {
-            display: inline-block;
-            background: #667eea;
-            color: white;
+            background: #edf2f7;
             padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
+            border-radius: 30px;
+            font-size: 0.8rem;
             font-weight: 600;
-            margin-left: 10px;
         }
 
-        .badge.success {
-            background: #4ade80;
+        .landmark-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+            color: #4a5568;
+            font-size: 0.9rem;
+            font-weight: 600;
         }
 
-        .badge.error {
-            background: #ef4444;
+        .landmark-toggle input {
+            width: 16px;
+            height: 16px;
+            accent-color: #667eea;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
-            <h1>🎯 Gesture Recognition</h1>
-            <p>Real-time gesture prediction using pose and hand detection</p>
+            <h1>🤟 Sign Language → Malayalam</h1>
+            <p>Real-time gesture recognition with pose & hand detection</p>
+            <div class="language-badge">
+                <span>23 Gestures • 30 Frames • 85% Confidence</span>
+            </div>
         </div>
 
-        <div class="content">
-            <div class="video-section">
-                <div class="video-container">
-                    <video id="video" autoplay playsinline></video>
-                </div>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
-                    <select id="cameraSelect" class="btn btn-secondary" style="flex: 1; min-width: 150px; padding: 12px; border-radius: 10px; border: 2px solid #e0e0e0; background: white; cursor: pointer;">
-                        <option value="">Select Camera</option>
-                    </select>
-                </div>
-                <div class="controls">
-                    <button class="btn btn-primary" id="startBtn">Start</button>
-                    <button class="btn btn-secondary" id="stopBtn" disabled>Stop</button>
-                    <button class="btn btn-secondary" id="resetBtn">Reset</button>
-                </div>
-                <div class="info-text">
-                    <span class="indicator inactive" id="cameraIndicator"></span>
-                    <span id="cameraStatus">Ready</span>
-                </div>
-            </div>
+        <!-- Tab Navigation -->
+        <div class="tab-container">
+            <button class="tab active" onclick="switchCameraType('webcam')">
+                <span>📷</span> Webcam
+            </button>
+            <button class="tab" onclick="switchCameraType('ipcam')">
+                <span>🌐</span> IP Camera
+            </button>
+        </div>
 
-            <div class="predictions-section">
-                <div class="status-box">
-                    <div class="status-label">Collecting Frames</div>
-                    <div class="frames-counter">
-                        <span id="frameCount">0</span> / 30
+        <!-- Webcam Section -->
+        <div id="webcam-section" class="camera-section active">
+            <div class="content-grid">
+                <div class="video-section">
+                    <div class="video-container">
+                        <video id="video" autoplay playsinline></video>
+                        <canvas id="landmarkCanvas"></canvas>
+                        <div class="video-overlay">
+                            <span class="indicator" id="webcamIndicator"></span>
+                            <span id="webcamStatus">Ready</span>
+                        </div>
                     </div>
-                    <div class="info-text">Need 30 frames for prediction</div>
+                    
+                    <select id="cameraSelect" class="camera-select">
+                        <option value="">Loading cameras...</option>
+                    </select>
+
+                    <div class="controls">
+                        <button class="btn btn-primary" id="startWebcamBtn">
+                            <span>▶️</span> Start
+                        </button>
+                        <button class="btn btn-secondary" id="stopWebcamBtn" disabled>
+                            <span>⏹️</span> Stop
+                        </button>
+                        <button class="btn btn-secondary" id="resetWebcamBtn">
+                            <span>🔄</span> Reset
+                        </button>
+                    </div>
+
+                    <label class="landmark-toggle" for="showLandmarks">
+                        <input type="checkbox" id="showLandmarks" checked>
+                        Show hand + upper body landmarks
+                    </label>
+
+                    <div class="ip-examples">
+                        <span>📱</span> Use your device camera
+                    </div>
                 </div>
 
-                <div id="predictionContainer" style="display: none;">
-                    <div class="prediction-result" id="predictionBox">
-                        <div class="prediction-label">Predicted Gesture</div>
-                        <div class="prediction-text" id="predictionText">-</div>
-                        <div class="confidence-container">
-                            <div class="confidence-label">
-                                Confidence: <span id="confidenceValue">0%</span>
+                <!-- Predictions Panel (Shared) -->
+                <div class="predictions-section" id="predictionsPanel">
+                    <!-- Status Card -->
+                    <div class="status-card">
+                        <div class="status-header">
+                            <span class="status-label">Frame Collection</span>
+                            <span class="frames-counter" id="frameCount">0</span>
+                        </div>
+                        <span class="frames-text">of 30 frames needed</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="frameProgress" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Prediction Result -->
+                    <div id="predictionContainer" class="hidden">
+                        <div class="prediction-result" id="predictionBox">
+                            <div class="prediction-label">Predicted Gesture</div>
+                            <div class="prediction-text" id="predictionText">-</div>
+                            <div style="margin: 10px 0">
+                                <span id="confidenceValue">0%</span> confidence
                             </div>
                             <div class="confidence-bar">
                                 <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="top-predictions">
-                    <div class="top-predictions-title">Top 3 Predictions</div>
-                    <div id="topPredictionsList">
-                        <div class="prediction-item" style="color: #aaa;">
-                            <span>Waiting for predictions...</span>
+                    <!-- Top Predictions -->
+                    <div class="top-predictions">
+                        <div class="top-predictions-title">
+                            <span>📊</span> Top 3 Predictions
                         </div>
+                        <ul class="predictions-list" id="topPredictionsList">
+                            <li style="color: #a0aec0; justify-content: center;">
+                                Waiting for predictions...
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Error Container -->
+                    <div id="errorContainer" class="hidden">
+                        <div class="error-box" id="errorBox"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IP Camera Section -->
+        <div id="ipcam-section" class="camera-section">
+            <div class="content-grid">
+                <div class="video-section">
+                    <div class="video-container">
+                        <img id="cameraFeed" style="width:100%; height:100%; object-fit:cover;">
+                        <div class="video-overlay">
+                            <span class="indicator" id="ipCameraIndicator"></span>
+                            <span id="ipCameraStatus">Disconnected</span>
+                        </div>
+                    </div>
+
+                    <div class="ip-input-group">
+                        <input type="text" 
+                               id="cameraUrlInput" 
+                               class="ip-camera-input" 
+                               placeholder="Enter IP camera URL (e.g., http://192.168.1.100:8080/video)">
+                        
+                        <div class="ip-examples">
+                            <strong>Examples:</strong><br>
+                            <span>http://192.168.1.100:8080/video</span>
+                            <span>rtsp://admin:pass@192.168.1.100/stream</span>
+                            <span>http://192.168.1.100/shot.jpg</span>
+                        </div>
+                    </div>
+
+                    <div class="controls">
+                        <button class="btn btn-primary" id="startIPBtn">
+                            <span>▶️</span> Start Stream
+                        </button>
+                        <button class="btn btn-secondary" id="stopIPBtn" disabled>
+                            <span>⏹️</span> Stop
+                        </button>
+                        <button class="btn btn-secondary" id="resetIPBtn">
+                            <span>🔄</span> Reset Buffer
+                        </button>
                     </div>
                 </div>
 
-                <div id="errorContainer" style="display: none;">
-                    <div class="error-box" id="errorBox"></div>
+                <!-- Same predictions panel (reused) -->
+                <div class="predictions-section" id="ipPredictionsPanel">
+                    <!-- Will be populated by JavaScript -->
                 </div>
             </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>⚡ Real-time gesture recognition • Made for Sign Language to Malayalam translation</p>
         </div>
     </div>
 
     <script>
+        // Configuration
         const config = {
             videoWidth: 320,
             videoHeight: 240,
-            clientId: 'client_' + Math.random().toString(36).substr(2, 9),
+            clientId: 'client_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now(),
             confidenceThreshold: 0.85,
-            selectedCameraId: null,
-            minSendIntervalMs: 220
+            sequenceLength: 12,
+            minSendInterval: 120, // faster webcam collection
+            ipCameraInterval: 180, // faster IP camera collection
         };
 
+        // State
         let isRunning = false;
+        let isIPMode = false;
         let stream = null;
         let requestInFlight = false;
+        let detectTimer = null;
         let lastSendAt = 0;
+
+        // DOM Elements
         const video = document.getElementById('video');
+        const cameraFeed = document.getElementById('cameraFeed');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const cameraUrlInput = document.getElementById('cameraUrlInput');
+        const showLandmarksCheckbox = document.getElementById('showLandmarks');
+        const landmarkCanvas = document.getElementById('landmarkCanvas');
+        const landmarkCtx = landmarkCanvas.getContext('2d');
+        
+        // Buttons
+        const startWebcamBtn = document.getElementById('startWebcamBtn');
+        const stopWebcamBtn = document.getElementById('stopWebcamBtn');
+        const resetWebcamBtn = document.getElementById('resetWebcamBtn');
+        const startIPBtn = document.getElementById('startIPBtn');
+        const stopIPBtn = document.getElementById('stopIPBtn');
+        const resetIPBtn = document.getElementById('resetIPBtn');
+
+        // Status elements
+        const webcamIndicator = document.getElementById('webcamIndicator');
+        const webcamStatus = document.getElementById('webcamStatus');
+        const ipCameraIndicator = document.getElementById('ipCameraIndicator');
+        const ipCameraStatus = document.getElementById('ipCameraStatus');
+
+        // Canvas for webcam capture
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const cameraSelect = document.getElementById('cameraSelect');
-
         canvas.width = config.videoWidth;
         canvas.height = config.videoHeight;
 
-        // Enumerate available cameras on page load
+        const UPPER_BODY_CONNECTIONS = [
+            [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
+            [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20], [11, 23], [12, 24], [23, 24]
+        ];
+        const HAND_CONNECTIONS_LOCAL = [
+            [0, 1], [1, 2], [2, 3], [3, 4],
+            [0, 5], [5, 6], [6, 7], [7, 8],
+            [5, 9], [9, 10], [10, 11], [11, 12],
+            [9, 13], [13, 14], [14, 15], [15, 16],
+            [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]
+        ];
+
+        // Initialize
+        window.addEventListener('load', () => {
+            enumerateCameras();
+            setupPredictionsPanel('ipPredictionsPanel');
+        });
+
+        function clearLandmarkOverlay() {
+            landmarkCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+        }
+
+        function drawPoints(points, color) {
+            if (!points || points.length === 0) return;
+            landmarkCtx.fillStyle = color;
+            for (const p of points) {
+                const x = p.x * landmarkCanvas.width;
+                const y = p.y * landmarkCanvas.height;
+                landmarkCtx.beginPath();
+                landmarkCtx.arc(x, y, 2.5, 0, Math.PI * 2);
+                landmarkCtx.fill();
+            }
+        }
+
+        function drawConnections(points, connections, color) {
+            if (!points || points.length === 0) return;
+            landmarkCtx.strokeStyle = color;
+            landmarkCtx.lineWidth = 2;
+            for (const [a, b] of connections) {
+                if (!points[a] || !points[b]) continue;
+                landmarkCtx.beginPath();
+                landmarkCtx.moveTo(points[a].x * landmarkCanvas.width, points[a].y * landmarkCanvas.height);
+                landmarkCtx.lineTo(points[b].x * landmarkCanvas.width, points[b].y * landmarkCanvas.height);
+                landmarkCtx.stroke();
+            }
+        }
+
+        function drawPoseUpper(poseUpper) {
+            if (!poseUpper || poseUpper.length === 0) return;
+            const poseByIdx = {};
+            for (const p of poseUpper) {
+                if (p.visibility !== undefined && p.visibility < 0.35) continue;
+                poseByIdx[p.idx] = p;
+            }
+
+            landmarkCtx.strokeStyle = '#4fd1c5';
+            landmarkCtx.lineWidth = 3;
+            for (const [a, b] of UPPER_BODY_CONNECTIONS) {
+                if (!poseByIdx[a] || !poseByIdx[b]) continue;
+                landmarkCtx.beginPath();
+                landmarkCtx.moveTo(poseByIdx[a].x * landmarkCanvas.width, poseByIdx[a].y * landmarkCanvas.height);
+                landmarkCtx.lineTo(poseByIdx[b].x * landmarkCanvas.width, poseByIdx[b].y * landmarkCanvas.height);
+                landmarkCtx.stroke();
+            }
+
+            drawPoints(Object.values(poseByIdx), '#4fd1c5');
+        }
+
+        function drawLandmarkOverlay(landmarks) {
+            if (!showLandmarksCheckbox.checked || isIPMode || !isRunning || !landmarks) {
+                clearLandmarkOverlay();
+                return;
+            }
+
+            if (!video.videoWidth || !video.videoHeight) {
+                return;
+            }
+
+            if (landmarkCanvas.width !== video.videoWidth || landmarkCanvas.height !== video.videoHeight) {
+                landmarkCanvas.width = video.videoWidth;
+                landmarkCanvas.height = video.videoHeight;
+            }
+
+            clearLandmarkOverlay();
+            drawPoseUpper(landmarks.pose_upper || []);
+            drawConnections(landmarks.left_hand || [], HAND_CONNECTIONS_LOCAL, '#00ff7f');
+            drawPoints(landmarks.left_hand || [], '#7fffd4');
+            drawConnections(landmarks.right_hand || [], HAND_CONNECTIONS_LOCAL, '#ff8c69');
+            drawPoints(landmarks.right_hand || [], '#ffd1c1');
+        }
+
+        // Setup predictions panel (reuse same structure)
+        function setupPredictionsPanel(panelId) {
+            const panel = document.getElementById(panelId);
+            if (!panel) return;
+            
+            panel.innerHTML = `
+                <div class="status-card">
+                    <div class="status-header">
+                        <span class="status-label">Frame Collection</span>
+                        <span class="frames-counter" id="ipFrameCount">0</span>
+                    </div>
+                    <span class="frames-text">of 30 frames needed</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="ipFrameProgress" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div id="ipPredictionContainer" class="hidden">
+                    <div class="prediction-result" id="ipPredictionBox">
+                        <div class="prediction-label">Predicted Gesture</div>
+                        <div class="prediction-text" id="ipPredictionText">-</div>
+                        <div style="margin: 10px 0">
+                            <span id="ipConfidenceValue">0%</span> confidence
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="ipConfidenceFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="top-predictions">
+                    <div class="top-predictions-title">
+                        <span>📊</span> Top 3 Predictions
+                    </div>
+                    <ul class="predictions-list" id="ipTopPredictionsList">
+                        <li style="color: #a0aec0; justify-content: center;">
+                            Waiting for predictions...
+                        </li>
+                    </ul>
+                </div>
+
+                <div id="ipErrorContainer" class="hidden">
+                    <div class="error-box" id="ipErrorBox"></div>
+                </div>
+            `;
+        }
+
+        // Switch between webcam and IP camera
+        window.switchCameraType = function(type) {
+            // Stop any running camera
+            if (isRunning) {
+                if (isIPMode) {
+                    stopIPCamera();
+                } else {
+                    stopWebcam();
+                }
+            }
+
+            // Update tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.camera-section').forEach(s => s.classList.remove('active'));
+            
+            if (type === 'webcam') {
+                document.querySelector('[onclick="switchCameraType(\'webcam\')"]').classList.add('active');
+                document.getElementById('webcam-section').classList.add('active');
+                isIPMode = false;
+            } else {
+                document.querySelector('[onclick="switchCameraType(\'ipcam\')"]').classList.add('active');
+                document.getElementById('ipcam-section').classList.add('active');
+                isIPMode = true;
+                clearLandmarkOverlay();
+            }
+        };
+
+        // Camera enumeration
         async function enumerateCameras() {
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const videoDevices = devices.filter(device => device.kind === 'videoinput');
                 
+                cameraSelect.innerHTML = '<option value="">Select Camera</option>';
+                
                 if (videoDevices.length === 0) {
-                    updateStatus('No cameras found');
+                    cameraSelect.innerHTML = '<option value="">No cameras found</option>';
                     return;
                 }
 
-                cameraSelect.innerHTML = '<option value="">Select Camera</option>';
                 videoDevices.forEach((device, index) => {
                     const option = document.createElement('option');
                     option.value = device.deviceId;
@@ -455,116 +974,83 @@
                 // Auto-select first camera
                 if (videoDevices.length > 0) {
                     cameraSelect.value = videoDevices[0].deviceId;
-                    config.selectedCameraId = videoDevices[0].deviceId;
-                    updateStatus(`Default camera: ${videoDevices[0].label || 'Camera 1'}`);
                 }
             } catch (error) {
                 console.error('Error enumerating cameras:', error);
-                updateStatus('Error: Cannot access camera list');
+                cameraSelect.innerHTML = '<option value="">Error loading cameras</option>';
             }
         }
 
-        // Listen for camera selection
-        cameraSelect.addEventListener('change', (e) => {
-            config.selectedCameraId = e.target.value;
-            if (isRunning) {
-                stopCamera();
-                setTimeout(() => {
-                    startCamera();
-                }, 500);
-            }
-        });
-
-        function updateStatus(message, isActive = false) {
-            document.getElementById('cameraStatus').textContent = message;
-            const indicator = document.getElementById('cameraIndicator');
-            if (isActive) {
-                indicator.classList.remove('inactive');
-                indicator.classList.add('active');
-            } else {
-                indicator.classList.remove('active');
-                indicator.classList.add('inactive');
-            }
-        }
-
-        function updateFrameCount(count, needed = 30) {
-            document.getElementById('frameCount').textContent = count;
-        }
-
-        function displayPrediction(data) {
-            const container = document.getElementById('predictionContainer');
-            const box = document.getElementById('predictionBox');
-            
-            if (data.status === 'ok') {
-                container.style.display = 'block';
-                
-                const confidence = (data.confidence * 100).toFixed(1);
-                document.getElementById('predictionText').textContent = data.prediction;
-                document.getElementById('confidenceValue').textContent = confidence + '%';
-                document.getElementById('confidenceFill').style.width = confidence + '%';
-
-                if (data.accepted) {
-                    box.classList.add('accepted');
-                    box.classList.remove('rejected');
-                } else {
-                    box.classList.add('rejected');
-                    box.classList.remove('accepted');
-                }
-
-                displayTopPredictions(data.top_predictions);
-            } else if (data.status === 'collecting') {
-                container.style.display = 'none';
-                updateFrameCount(data.frames, data.needed);
-                updateStatus(`Collecting frames: ${data.frames}/${data.needed}`);
-            }
-        }
-
-        function displayTopPredictions(predictions) {
-            const list = document.getElementById('topPredictionsList');
-            list.innerHTML = predictions.map((pred, idx) => {
-                const confidence = (pred.confidence * 100).toFixed(1);
-                return `
-                    <div class="prediction-item">
-                        <span class="prediction-item-label">${idx + 1}. ${pred.label}</span>
-                        <span class="prediction-item-confidence">${confidence}%</span>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function showError(message) {
-            const errorContainer = document.getElementById('errorContainer');
-            const errorBox = document.getElementById('errorBox');
-            errorBox.textContent = message;
-            errorContainer.style.display = 'block';
-            setTimeout(() => {
-                errorContainer.style.display = 'none';
-            }, 5000);
-        }
-
-        async function sendFrame() {
-            if (!isRunning) return;
-
-            const now = Date.now();
-            if (requestInFlight || (now - lastSendAt) < config.minSendIntervalMs) {
-                requestAnimationFrame(sendFrame);
+        // Webcam Functions
+        async function startWebcam() {
+            const deviceId = cameraSelect.value;
+            if (!deviceId) {
+                showError('Please select a camera', 'webcam');
                 return;
             }
 
             try {
-                // Ensure video is ready
+                const constraints = {
+                    video: {
+                        deviceId: { exact: deviceId },
+                        width: { ideal: config.videoWidth },
+                        height: { ideal: config.videoHeight }
+                    }
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+
+                video.onloadedmetadata = () => {
+                    video.play().then(() => {
+                        setTimeout(() => {
+                            // Test canvas capture
+                            ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
+                            const testData = canvas.toDataURL('image/jpeg', 0.6);
+                            
+                            if (testData && testData.length > 100) {
+                                isRunning = true;
+                                isIPMode = false;
+                                
+                                // Update UI
+                                startWebcamBtn.disabled = true;
+                                stopWebcamBtn.disabled = false;
+                                cameraSelect.disabled = true;
+                                
+                                webcamIndicator.classList.add('active');
+                                webcamStatus.textContent = 'Active';
+                                
+                                // Start prediction loop
+                                sendWebcamFrame();
+                            } else {
+                                showError('Failed to capture video frames', 'webcam');
+                            }
+                        }, 300);
+                    }).catch(error => {
+                        showError('Failed to play video: ' + error.message, 'webcam');
+                    });
+                };
+            } catch (error) {
+                showError('Camera access denied: ' + error.message, 'webcam');
+            }
+        }
+
+        async function sendWebcamFrame() {
+            if (!isRunning || isIPMode) return;
+
+            const now = Date.now();
+            if (requestInFlight || (now - lastSendAt) < config.minSendInterval) {
+                requestAnimationFrame(sendWebcamFrame);
+                return;
+            }
+
+            try {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
                     requestInFlight = true;
                     lastSendAt = now;
 
                     ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
                     const imageData = canvas.toDataURL('image/jpeg', 0.6);
-
-                    if (!imageData || imageData.length < 100) {
-                        console.warn('Canvas data appears empty');
-                        requestAnimationFrame(sendFrame);
-                        return;
-                    }
 
                     const response = await fetch('/predict', {
                         method: 'POST',
@@ -578,122 +1064,349 @@
                     const data = await response.json();
                     
                     if (response.ok) {
-                        displayPrediction(data);
-                        updateStatus('Processing...', true);
+                        updatePredictions(data, 'webcam');
+                        drawLandmarkOverlay(data.landmarks);
                     } else {
-                        const errMsg = data?.error || 'Prediction request failed';
-                        showError(errMsg);
-                        updateStatus('Prediction error');
-                        console.error('Prediction failed:', data);
+                        showError(data.error || 'Prediction failed', 'webcam');
+                        clearLandmarkOverlay();
                     }
                 }
             } catch (error) {
-                showError('Network or server error: ' + error.message);
-                updateStatus('Connection error');
-                console.error('Send frame error:', error);
+                showError('Network error: ' + error.message, 'webcam');
+                clearLandmarkOverlay();
             } finally {
                 requestInFlight = false;
             }
 
-            requestAnimationFrame(sendFrame);
+            requestAnimationFrame(sendWebcamFrame);
         }
 
-        async function startCamera() {
-            try {
-                const constraints = {
-                    video: {
-                        width: { ideal: config.videoWidth },
-                        height: { ideal: config.videoHeight },
-                        facingMode: 'user'
-                    }
-                };
-
-                // If a specific camera is selected, use that device ID
-                if (config.selectedCameraId) {
-                    constraints.video.deviceId = { exact: config.selectedCameraId };
-                }
-
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-                video.srcObject = stream;
-                
-                // Wait for video to load and be ready
-                video.onloadedmetadata = () => {
-                    console.log('Video metadata loaded');
-                    const playPromise = video.play();
-                    
-                    if (playPromise !== undefined) {
-                        playPromise.then(() => {
-                            console.log('Video playing');
-                            // Give it a moment to actually render frames
-                            setTimeout(() => {
-                                // Test canvas capture
-                                ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
-                                const testData = canvas.toDataURL('image/jpeg', 0.8);
-                                if (testData && testData.length > 100) {
-                                    console.log('Canvas test passed, starting frame capture');
-                                    isRunning = true;
-                                    document.getElementById('startBtn').disabled = true;
-                                    document.getElementById('stopBtn').disabled = false;
-                                    cameraSelect.disabled = true;
-                                    updateStatus('Camera active', true);
-                                    sendFrame();
-                                } else {
-                                    showError('Failed to capture video frames');
-                                }
-                            }, 300);
-                        }).catch(error => {
-                            showError('Failed to play video: ' + error.message);
-                        });
-                    }
-                };
-
-                video.onerror = () => {
-                    showError('Video error occurred');
-                };
-            } catch (error) {
-                showError('Camera access denied: ' + error.message);
-            }
-        }
-
-        function stopCamera() {
+        function stopWebcam() {
             isRunning = false;
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
             }
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
+            
+            startWebcamBtn.disabled = false;
+            stopWebcamBtn.disabled = true;
             cameraSelect.disabled = false;
-            updateStatus('Stopped');
+            
+            webcamIndicator.classList.remove('active');
+            webcamStatus.textContent = 'Stopped';
+            clearLandmarkOverlay();
+            
+            resetUI('webcam');
         }
 
-        async function resetBuffer() {
+        // IP Camera Functions
+        async function startIPCamera() {
+            const cameraUrl = cameraUrlInput.value.trim();
+            if (!cameraUrl) {
+                showError('Please enter a camera URL', 'ip');
+                return;
+            }
+
+            // Basic URL validation
+            try {
+                new URL(cameraUrl);
+            } catch {
+                showError('Invalid URL format', 'ip');
+                return;
+            }
+
+            isRunning = true;
+            isIPMode = true;
+            
+            // Update UI
+            startIPBtn.disabled = true;
+            stopIPBtn.disabled = false;
+            cameraUrlInput.disabled = true;
+            
+            ipCameraIndicator.classList.add('active');
+            ipCameraStatus.textContent = 'Connecting...';
+
+            // Test connection
+            try {
+                const testResponse = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_url: cameraUrl,
+                        client_id: config.clientId
+                    })
+                });
+
+                if (!testResponse.ok) {
+                    throw new Error('Camera connection failed');
+                }
+
+                ipCameraStatus.textContent = 'Streaming';
+                
+                // Start periodic prediction
+                if (detectTimer) clearInterval(detectTimer);
+                detectTimer = setInterval(sendIPCameraFrame, config.ipCameraInterval);
+                
+            } catch (error) {
+                showError('Failed to connect to IP camera: ' + error.message, 'ip');
+                stopIPCamera();
+            }
+        }
+
+        async function sendIPCameraFrame() {
+            if (!isRunning || !isIPMode) return;
+
+            const cameraUrl = cameraUrlInput.value.trim();
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_url: cameraUrl,
+                        client_id: config.clientId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    updatePredictions(data, 'ip');
+                    ipCameraStatus.textContent = 'Streaming';
+                } else {
+                    showError(data.error || 'Prediction failed', 'ip');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message, 'ip');
+                ipCameraStatus.textContent = 'Error';
+            }
+        }
+
+        function stopIPCamera() {
+            isRunning = false;
+            if (detectTimer) {
+                clearInterval(detectTimer);
+                detectTimer = null;
+            }
+            
+            startIPBtn.disabled = false;
+            stopIPBtn.disabled = true;
+            cameraUrlInput.disabled = false;
+            cameraFeed.src = '';
+            
+            ipCameraIndicator.classList.remove('active');
+            ipCameraStatus.textContent = 'Disconnected';
+            
+            resetUI('ip');
+        }
+
+        // Reset buffer
+        async function resetBuffer(mode) {
             try {
                 await fetch('/reset', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ client_id: config.clientId })
                 });
-                updateFrameCount(0);
-                document.getElementById('predictionContainer').style.display = 'none';
-                updateStatus('Buffer reset');
+                resetUI(mode);
+                showTemporaryMessage('Buffer reset', mode);
             } catch (error) {
-                showError('Reset failed: ' + error.message);
+                showError('Reset failed: ' + error.message, mode);
             }
         }
 
-        document.getElementById('startBtn').addEventListener('click', startCamera);
-        document.getElementById('stopBtn').addEventListener('click', stopCamera);
-        document.getElementById('resetBtn').addEventListener('click', resetBuffer);
+        function getModeElement(mode, webcamId, ipId) {
+            return document.getElementById(mode === 'webcam' ? webcamId : ipId);
+        }
 
-        // Initialize camera list on page load
-        window.addEventListener('load', () => {
-            enumerateCameras();
-            updateStatus('Ready');
+        // Update predictions UI
+        function updatePredictions(data, mode) {
+            if (data.status === 'idle') {
+                if (Number.isFinite(data.needed) && data.needed > 0) {
+                    config.sequenceLength = data.needed;
+                }
+                const frameElement = getModeElement(mode, 'frameCount', 'ipFrameCount');
+                const progressElement = getModeElement(mode, 'frameProgress', 'ipFrameProgress');
+                const predContainer = getModeElement(mode, 'predictionContainer', 'ipPredictionContainer');
+                const predText = getModeElement(mode, 'predictionText', 'ipPredictionText');
+                const confValue = getModeElement(mode, 'confidenceValue', 'ipConfidenceValue');
+                const confFill = getModeElement(mode, 'confidenceFill', 'ipConfidenceFill');
+
+                if (frameElement) frameElement.textContent = '0';
+                if (progressElement) progressElement.style.width = '0%';
+                if (predContainer) predContainer.classList.add('hidden');
+                if (predText) predText.textContent = '-';
+                if (confValue) confValue.textContent = '0%';
+                if (confFill) confFill.style.width = '0%';
+
+                updateTopPredictions([], mode);
+                drawLandmarkOverlay(data.landmarks);
+                return;
+            }
+            
+            if (data.status === 'collecting') {
+                if (Number.isFinite(data.needed) && data.needed > 0) {
+                    config.sequenceLength = data.needed;
+                }
+                // Update frame counter
+                const frameElement = getModeElement(mode, 'frameCount', 'ipFrameCount');
+                const progressElement = getModeElement(mode, 'frameProgress', 'ipFrameProgress');
+                const predContainer = getModeElement(mode, 'predictionContainer', 'ipPredictionContainer');
+                const predBox = getModeElement(mode, 'predictionBox', 'ipPredictionBox');
+                const predText = getModeElement(mode, 'predictionText', 'ipPredictionText');
+                const confValue = getModeElement(mode, 'confidenceValue', 'ipConfidenceValue');
+                const confFill = getModeElement(mode, 'confidenceFill', 'ipConfidenceFill');
+                
+                if (frameElement) {
+                    frameElement.textContent = data.frames;
+                }
+                if (progressElement) {
+                    progressElement.style.width = (data.frames / config.sequenceLength * 100) + '%';
+                }
+
+                const lm = data.landmarks || {};
+                const hasHands = (lm.left_hand && lm.left_hand.length) || (lm.right_hand && lm.right_hand.length);
+                const hasUpperPose = lm.pose_upper && lm.pose_upper.length;
+                const hasLandmarks = Boolean(hasHands || hasUpperPose);
+                
+                // Keep prediction card visible with clear idle/collecting feedback.
+                if (predContainer) predContainer.classList.remove('hidden');
+                if (predBox) predBox.classList.remove('accepted', 'rejected');
+                if (predText) {
+                    predText.textContent = hasLandmarks ? 'Collecting...' : 'Idle';
+                }
+                if (confValue) {
+                    confValue.textContent = hasLandmarks ? `${Math.round((data.frames / config.sequenceLength) * 100)}%` : '0%';
+                }
+                if (confFill) {
+                    confFill.style.width = hasLandmarks ? `${(data.frames / config.sequenceLength) * 100}%` : '0%';
+                }
+                
+            } else if (data.status === 'ok') {
+                if (Number.isFinite(data.needed) && data.needed > 0) {
+                    config.sequenceLength = data.needed;
+                }
+                // Update frame counter to full
+                const frameElement = getModeElement(mode, 'frameCount', 'ipFrameCount');
+                const progressElement = getModeElement(mode, 'frameProgress', 'ipFrameProgress');
+                
+                if (frameElement) frameElement.textContent = data.frames ?? config.sequenceLength;
+                if (progressElement) {
+                    progressElement.style.width = '100%';
+                }
+                
+                // Show prediction
+                const predContainer = getModeElement(mode, 'predictionContainer', 'ipPredictionContainer');
+                const predBox = getModeElement(mode, 'predictionBox', 'ipPredictionBox');
+                const predText = getModeElement(mode, 'predictionText', 'ipPredictionText');
+                const confValue = getModeElement(mode, 'confidenceValue', 'ipConfidenceValue');
+                const confFill = getModeElement(mode, 'confidenceFill', 'ipConfidenceFill');
+                
+                if (predContainer) predContainer.classList.remove('hidden');
+                
+                const confidencePercent = (data.confidence * 100).toFixed(1);
+                
+                if (predText) predText.textContent = data.prediction;
+                if (confValue) confValue.textContent = confidencePercent + '%';
+                if (confFill) confFill.style.width = confidencePercent + '%';
+                
+                if (predBox) {
+                    predBox.classList.remove('accepted', 'rejected');
+                    predBox.classList.add(data.accepted ? 'accepted' : 'rejected');
+                }
+                
+                // Update top predictions
+                updateTopPredictions(data.top_predictions || [], mode);
+            }
+        }
+
+        function updateTopPredictions(predictions, mode) {
+            const listElement = getModeElement(mode, 'topPredictionsList', 'ipTopPredictionsList');
+            if (!listElement) return;
+            
+            if (!predictions || predictions.length === 0) {
+                listElement.innerHTML = '<li style="color: #a0aec0; justify-content: center;">No predictions</li>';
+                return;
+            }
+
+            const colors = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, Silver, Bronze
+            listElement.innerHTML = predictions.map((pred, index) => `
+                <li>
+                    <div class="prediction-item">
+                        <span class="prediction-rank" style="background: ${colors[index]}20; color: ${colors[index]}">${index + 1}</span>
+                        <span class="prediction-label">${pred.label}</span>
+                    </div>
+                    <span class="prediction-confidence">${(pred.confidence * 100).toFixed(1)}%</span>
+                </li>
+            `).join('');
+        }
+
+        function resetUI(mode) {
+            const frameElement = getModeElement(mode, 'frameCount', 'ipFrameCount');
+            const progressElement = getModeElement(mode, 'frameProgress', 'ipFrameProgress');
+            const predContainer = getModeElement(mode, 'predictionContainer', 'ipPredictionContainer');
+            const predText = getModeElement(mode, 'predictionText', 'ipPredictionText');
+            const confValue = getModeElement(mode, 'confidenceValue', 'ipConfidenceValue');
+            const confFill = getModeElement(mode, 'confidenceFill', 'ipConfidenceFill');
+            
+            if (frameElement) frameElement.textContent = '0';
+            if (progressElement) progressElement.style.width = '0%';
+            if (predContainer) predContainer.classList.add('hidden');
+            if (predText) predText.textContent = '-';
+            if (confValue) confValue.textContent = '0%';
+            if (confFill) confFill.style.width = '0%';
+            
+            updateTopPredictions([], mode);
+        }
+
+        function showError(message, mode) {
+            const errorContainer = getModeElement(mode, 'errorContainer', 'ipErrorContainer');
+            const errorBox = getModeElement(mode, 'errorBox', 'ipErrorBox');
+            
+            if (errorContainer && errorBox) {
+                errorBox.textContent = message;
+                errorContainer.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    errorContainer.classList.add('hidden');
+                }, 5000);
+            }
+        }
+
+        function showTemporaryMessage(message, mode) {
+            const prefix = mode === 'webcam' ? '' : 'ip';
+            const statusElement = mode === 'webcam' ? webcamStatus : ipCameraStatus;
+            
+            if (statusElement) {
+                const originalText = statusElement.textContent;
+                statusElement.textContent = message;
+                
+                setTimeout(() => {
+                    statusElement.textContent = originalText;
+                }, 2000);
+            }
+        }
+
+        // Event Listeners
+        startWebcamBtn.addEventListener('click', startWebcam);
+        stopWebcamBtn.addEventListener('click', stopWebcam);
+        resetWebcamBtn.addEventListener('click', () => resetBuffer('webcam'));
+
+        startIPBtn.addEventListener('click', startIPCamera);
+        stopIPBtn.addEventListener('click', stopIPCamera);
+        resetIPBtn.addEventListener('click', () => resetBuffer('ip'));
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
         });
 
-        // Also try to enumerate cameras immediately
-        enumerateCameras();
+        showLandmarksCheckbox.addEventListener('change', () => {
+            if (!showLandmarksCheckbox.checked) {
+                clearLandmarkOverlay();
+            }
+        });
     </script>
 </body>
 </html>
