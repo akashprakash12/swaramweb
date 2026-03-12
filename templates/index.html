@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Recognition - Swaram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 40px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        .video-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            width: 100%;
+            aspect-ratio: 4/3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 2px solid #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #e8e8e8;
+            border-color: #d0d0d0;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .predictions-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .status-box {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+
+        .status-label {
+            font-size: 0.95em;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .frames-counter {
+            font-size: 1.5em;
+            color: #667eea;
+            font-weight: 700;
+        }
+
+        .prediction-result {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .prediction-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .prediction-text {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .confidence-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .confidence-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+            text-align: left;
+        }
+
+        .confidence-bar {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            background: white;
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .accepted {
+            border: 3px solid #4ade80;
+            background: rgba(74, 222, 128, 0.1);
+        }
+
+        .rejected {
+            border: 3px solid #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .top-predictions {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+        }
+
+        .top-predictions-title {
+            font-size: 0.95em;
+            color: #666;
+            margin-bottom: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .prediction-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.95em;
+        }
+
+        .prediction-item:last-child {
+            border-bottom: none;
+        }
+
+        .prediction-item-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .prediction-item-confidence {
+            color: #667eea;
+            font-weight: 700;
+        }
+
+        .error-box {
+            background: #fee;
+            border: 2px solid #fcc;
+            color: #c33;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .indicator.active {
+            background: #4ade80;
+            box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+        }
+
+        .indicator.inactive {
+            background: #ef4444;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+                gap: 30px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            .btn {
+                flex: none;
+            }
+        }
+
+        .info-text {
+            font-size: 0.9em;
+            color: #888;
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .badge.success {
+            background: #4ade80;
+        }
+
+        .badge.error {
+            background: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Gesture Recognition</h1>
+            <p>Real-time gesture prediction using pose and hand detection</p>
+        </div>
+
+        <div class="content">
+            <div class="video-section">
+                <div class="video-container">
+                    <video id="video" autoplay playsinline></video>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+                    <select id="cameraSelect" class="btn btn-secondary" style="flex: 1; min-width: 150px; padding: 12px; border-radius: 10px; border: 2px solid #e0e0e0; background: white; cursor: pointer;">
+                        <option value="">Select Camera</option>
+                    </select>
+                </div>
+                <div class="controls">
+                    <button class="btn btn-primary" id="startBtn">Start</button>
+                    <button class="btn btn-secondary" id="stopBtn" disabled>Stop</button>
+                    <button class="btn btn-secondary" id="resetBtn">Reset</button>
+                </div>
+                <div class="info-text">
+                    <span class="indicator inactive" id="cameraIndicator"></span>
+                    <span id="cameraStatus">Ready</span>
+                </div>
+            </div>
+
+            <div class="predictions-section">
+                <div class="status-box">
+                    <div class="status-label">Collecting Frames</div>
+                    <div class="frames-counter">
+                        <span id="frameCount">0</span> / 30
+                    </div>
+                    <div class="info-text">Need 30 frames for prediction</div>
+                </div>
+
+                <div id="predictionContainer" style="display: none;">
+                    <div class="prediction-result" id="predictionBox">
+                        <div class="prediction-label">Predicted Gesture</div>
+                        <div class="prediction-text" id="predictionText">-</div>
+                        <div class="confidence-container">
+                            <div class="confidence-label">
+                                Confidence: <span id="confidenceValue">0%</span>
+                            </div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="top-predictions">
+                    <div class="top-predictions-title">Top 3 Predictions</div>
+                    <div id="topPredictionsList">
+                        <div class="prediction-item" style="color: #aaa;">
+                            <span>Waiting for predictions...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="errorContainer" style="display: none;">
+                    <div class="error-box" id="errorBox"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const config = {
+            videoWidth: 640,
+            videoHeight: 480,
+            clientId: 'client_' + Math.random().toString(36).substr(2, 9),
+            confidenceThreshold: 0.85,
+            selectedCameraId: null
+        };
+
+        let isRunning = false;
+        let stream = null;
+        const video = document.getElementById('video');
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const cameraSelect = document.getElementById('cameraSelect');
+
+        canvas.width = config.videoWidth;
+        canvas.height = config.videoHeight;
+
+        // Enumerate available cameras on page load
+        async function enumerateCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                
+                if (videoDevices.length === 0) {
+                    updateStatus('No cameras found');
+                    return;
+                }
+
+                cameraSelect.innerHTML = '<option value="">Select Camera</option>';
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${index + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+
+                // Auto-select first camera
+                if (videoDevices.length > 0) {
+                    cameraSelect.value = videoDevices[0].deviceId;
+                    config.selectedCameraId = videoDevices[0].deviceId;
+                    updateStatus(`Default camera: ${videoDevices[0].label || 'Camera 1'}`);
+                }
+            } catch (error) {
+                console.error('Error enumerating cameras:', error);
+                updateStatus('Error: Cannot access camera list');
+            }
+        }
+
+        // Listen for camera selection
+        cameraSelect.addEventListener('change', (e) => {
+            config.selectedCameraId = e.target.value;
+            if (isRunning) {
+                stopCamera();
+                setTimeout(() => {
+                    startCamera();
+                }, 500);
+            }
+        });
+
+        function updateStatus(message, isActive = false) {
+            document.getElementById('cameraStatus').textContent = message;
+            const indicator = document.getElementById('cameraIndicator');
+            if (isActive) {
+                indicator.classList.remove('inactive');
+                indicator.classList.add('active');
+            } else {
+                indicator.classList.remove('active');
+                indicator.classList.add('inactive');
+            }
+        }
+
+        function updateFrameCount(count, needed = 30) {
+            document.getElementById('frameCount').textContent = count;
+        }
+
+        function displayPrediction(data) {
+            const container = document.getElementById('predictionContainer');
+            const box = document.getElementById('predictionBox');
+            
+            if (data.status === 'ok') {
+                container.style.display = 'block';
+                
+                const confidence = (data.confidence * 100).toFixed(1);
+                document.getElementById('predictionText').textContent = data.prediction;
+                document.getElementById('confidenceValue').textContent = confidence + '%';
+                document.getElementById('confidenceFill').style.width = confidence + '%';
+
+                if (data.accepted) {
+                    box.classList.add('accepted');
+                    box.classList.remove('rejected');
+                } else {
+                    box.classList.add('rejected');
+                    box.classList.remove('accepted');
+                }
+
+                displayTopPredictions(data.top_predictions);
+            } else if (data.status === 'collecting') {
+                container.style.display = 'none';
+                updateFrameCount(data.frames, data.needed);
+                updateStatus(`Collecting frames: ${data.frames}/${data.needed}`);
+            }
+        }
+
+        function displayTopPredictions(predictions) {
+            const list = document.getElementById('topPredictionsList');
+            list.innerHTML = predictions.map((pred, idx) => {
+                const confidence = (pred.confidence * 100).toFixed(1);
+                return `
+                    <div class="prediction-item">
+                        <span class="prediction-item-label">${idx + 1}. ${pred.label}</span>
+                        <span class="prediction-item-confidence">${confidence}%</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            const errorBox = document.getElementById('errorBox');
+            errorBox.textContent = message;
+            errorContainer.style.display = 'block';
+            setTimeout(() => {
+                errorContainer.style.display = 'none';
+            }, 5000);
+        }
+
+        async function sendFrame() {
+            if (!isRunning) return;
+
+            try {
+                // Ensure video is ready
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                    if (!imageData || imageData.length < 100) {
+                        console.warn('Canvas data appears empty');
+                        requestAnimationFrame(sendFrame);
+                        return;
+                    }
+
+                    const response = await fetch('/predict', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            image: imageData,
+                            client_id: config.clientId
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        displayPrediction(data);
+                        updateStatus('Processing...', true);
+                    } else {
+                        console.error('Prediction failed:', data);
+                    }
+                }
+            } catch (error) {
+                console.error('Send frame error:', error);
+            }
+
+            requestAnimationFrame(sendFrame);
+        }
+
+        async function startCamera() {
+            try {
+                const constraints = {
+                    video: {
+                        width: { ideal: config.videoWidth },
+                        height: { ideal: config.videoHeight },
+                        facingMode: 'user'
+                    }
+                };
+
+                // If a specific camera is selected, use that device ID
+                if (config.selectedCameraId) {
+                    constraints.video.deviceId = { exact: config.selectedCameraId };
+                }
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+                video.srcObject = stream;
+                
+                // Wait for video to load and be ready
+                video.onloadedmetadata = () => {
+                    console.log('Video metadata loaded');
+                    const playPromise = video.play();
+                    
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            console.log('Video playing');
+                            // Give it a moment to actually render frames
+                            setTimeout(() => {
+                                // Test canvas capture
+                                ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
+                                const testData = canvas.toDataURL('image/jpeg', 0.8);
+                                if (testData && testData.length > 100) {
+                                    console.log('Canvas test passed, starting frame capture');
+                                    isRunning = true;
+                                    document.getElementById('startBtn').disabled = true;
+                                    document.getElementById('stopBtn').disabled = false;
+                                    cameraSelect.disabled = true;
+                                    updateStatus('Camera active', true);
+                                    sendFrame();
+                                } else {
+                                    showError('Failed to capture video frames');
+                                }
+                            }, 300);
+                        }).catch(error => {
+                            showError('Failed to play video: ' + error.message);
+                        });
+                    }
+                };
+
+                video.onerror = () => {
+                    showError('Video error occurred');
+                };
+            } catch (error) {
+                showError('Camera access denied: ' + error.message);
+            }
+        }
+
+        function stopCamera() {
+            isRunning = false;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            cameraSelect.disabled = false;
+            updateStatus('Stopped');
+        }
+
+        async function resetBuffer() {
+            try {
+                await fetch('/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: config.clientId })
+                });
+                updateFrameCount(0);
+                document.getElementById('predictionContainer').style.display = 'none';
+                updateStatus('Buffer reset');
+            } catch (error) {
+                showError('Reset failed: ' + error.message);
+            }
+        }
+
+        document.getElementById('startBtn').addEventListener('click', startCamera);
+        document.getElementById('stopBtn').addEventListener('click', stopCamera);
+        document.getElementById('resetBtn').addEventListener('click', resetBuffer);
+
+        // Initialize camera list on page load
+        window.addEventListener('load', () => {
+            enumerateCameras();
+            updateStatus('Ready');
+        });
+
+        // Also try to enumerate cameras immediately
+        enumerateCameras();
+    </script>
+</body>
+</html>

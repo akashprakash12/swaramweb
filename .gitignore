@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+.Python
+.vscode/
+
+# Local Python environments
+convertenv/
+signenv/
+
+# Training data and derived artifacts not needed by the web app repo
+dataset/
+model.h5
+scaler.pkl
+training_history.png
+
+# Mobile app sources and exports
+mobile-app/
+mobile-app-export/
+static/
+
+# Training and debugging scripts excluded from the site-only repository
+check_tflite.py
+debug_model_predictions.py
+normalization.py
+step1_collect.py
+step2_train.py
+step3_test_desktop.py
+step4_export_android.py
+tenserlight.py
+tenserlight_malayalam.py
+test_malayalam.py

@@ -1,0 +1,21 @@
+# Sign Language → Malayalam  —  Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# IMPORTANT:
+# Keep TensorFlow + MediaPipe on mutually compatible versions.
+# TensorFlow 2.20+ requires protobuf>=5, while MediaPipe 0.10.x requires protobuf<4.
+# These pins are tested together for this project on Python 3.11.
+
+# Core ML
+tensorflow==2.13.1
+scikit-learn==1.3.2
+numpy==1.24.3
+
+# Data collection / inference
+mediapipe==0.10.9
+opencv-python==4.8.1.78
+protobuf==3.20.3
+
+# Utilities
+joblib==1.3.2
+matplotlib==3.7.3
