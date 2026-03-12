@@ -49,6 +49,14 @@ Build command: pip install -r requirements.txt
 Start command: gunicorn --bind 0.0.0.0:$PORT app:app
 ```
 
+If your Render logs show `Running 'gunicorn app:app'` and then `No open ports detected`, your service start command is overridden in the Render dashboard. Change it to:
+
+```bash
+gunicorn --bind 0.0.0.0:$PORT app:app
+```
+
+This repository also includes `gunicorn.conf.py` so Gunicorn binds to `$PORT` even when started as `gunicorn app:app`.
+
 Docker option on Render:
 
 1. Create service using `Environment: Docker`.
