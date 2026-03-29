@@ -36,6 +36,29 @@ from flask import Flask, jsonify, render_template_string, request
 
 warnings.filterwarnings("ignore", message=r".*SymbolDatabase\.GetPrototype\(\) is deprecated.*")
 
+
+def _load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE pairs from .env into process environment if unset."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        # Do not crash app startup due to .env parsing issues.
+        pass
+
+
+_load_dotenv()
+
 # ═══════════════════════════════════════════
 # MODEL / SCALER / LABELS PATHS
 # ═══════════════════════════════════════════
