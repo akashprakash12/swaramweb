@@ -44,15 +44,3 @@ static/
 
 # Frontend dependency cache
 node_modules/
-
-# Training and debugging scripts excluded from the site-only repository
-check_tflite.py
-debug_model_predictions.py
-normalization.py
-step1_collect.py
-step2_train.py
-step3_test_desktop.py
-step4_export_android.py
-tenserlight.py
-tenserlight_malayalam.py
-test_malayalam.py
