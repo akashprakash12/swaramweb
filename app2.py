@@ -21,6 +21,7 @@ import io
 import json
 import os
 import re
+import requests
 import tempfile
 import threading
 import time
@@ -37,7 +38,7 @@ from flask import Flask, jsonify, render_template_string, request
 warnings.filterwarnings("ignore", message=r".*SymbolDatabase\.GetPrototype\(\) is deprecated.*")
 
 # ═══════════════════════════════════════════
-# MODEL / SCALER / LABELS PATHS
+# MODEL / SCALER / LABELS PATHS — SIGN
 # ═══════════════════════════════════════════
 MODEL_PATH  = "model.tflite"
 SCALER_JSON = "scaler.json"
@@ -45,6 +46,28 @@ LABELS_JSON = "labels.json"
 SEQUENCE_LEN = 30
 N_FEATURES   = 225
 THRESHOLD    = 0.85
+
+# ═══════════════════════════════════════════
+# LIP READING MODEL PATHS
+# ═══════════════════════════════════════════
+LIP_MODEL_PATH   = os.environ.get("LIP_MODEL_PATH",  "lip_model.tflite")
+LIP_SCALER_JSON  = os.environ.get("LIP_SCALER_JSON", "lip_scaler.json")
+LIP_LABELS_JSON  = os.environ.get("LIP_LABELS_JSON", "lip_labels.json")
+LIP_SEQUENCE_LEN = 30
+LIP_N_FEATURES   = 90     # 30 lip landmarks × (x,y,z)
+LIP_THRESHOLD    = 0.80
+
+# MediaPipe FaceMesh indices for lips (30 points)
+LIP_INDICES = [
+    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267,
+    78,  95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312,
+]
+
+# Motion gating for lip reading
+LIP_MOTION_THRESHOLD = 0.02
+LIP_STILLNESS_FRAMES = 8
+LIP_MIN_CAPTURE      = 15
+LIP_COOLDOWN_SEC     = 1.2
 
 # ═══════════════════════════════════════════
 # API KEYS (from environment only)
@@ -58,6 +81,27 @@ LLM_BUFFER_SIZE        = 10
 LLM_MAX_RETRIES        = 2
 SILENCE_TRIGGER_SEC    = 2.0
 MIN_WORDS_FOR_AUTO_LLM = 1
+
+# Fallback dictionary used when LLM call fails/rate-limits.
+WORD_MAP = {
+  "Hello": "ഹലോ",
+  "Thanks": "നന്ദി",
+  "ThankYou": "നന്ദി",
+  "Please": "ദയവായി",
+  "Sorry": "ക്ഷമിക്കണം",
+  "Yes": "അതെ",
+  "No": "ഇല്ല",
+  "Help": "സഹായിക്കൂ",
+  "Water": "വെള്ളം",
+  "Food": "ഭക്ഷണം",
+  "Good": "നല്ലത്",
+  "Bad": "മോശം",
+  "Come": "വരൂ",
+  "Go": "പോവൂ",
+  "Stop": "നിർത്തൂ",
+  "More": "കൂടുതൽ",
+  "Less": "കുറവ്",
+}
 
 # ═══════════════════════
 # LLM PROVIDERS
@@ -125,6 +169,15 @@ if LLM_PROVIDER is None and COHERE_API_KEY:
     except ImportError:
         print("⚠️  pip install cohere")
 
+# SDK-free fallback providers (keeps TensorFlow/MediaPipe env stable)
+if LLM_PROVIDER is None and GROQ_API_KEY:
+    LLM_PROVIDER = "groq_http"
+    print("✅  English LLM : Groq HTTP fallback")
+
+if LLM_PROVIDER is None and GEMINI_API_KEY:
+    LLM_PROVIDER = "gemini_http"
+    print("✅  Malayalam LLM: Gemini HTTP fallback")
+
 if LLM_PROVIDER is None:
     print("⚠️  No LLM provider. Local word-map fallback only.")
 
@@ -140,6 +193,8 @@ def _call_llm(prompt: str) -> str:
             max_tokens=200, temperature=0.4,
         )
         return resp.choices[0].message.content.strip()
+    if GROQ_API_KEY:
+        return _call_groq_http(prompt, max_tokens=200, temperature=0.4)
     return _call_gemini_translate(prompt)
 
 
@@ -172,7 +227,54 @@ def _call_gemini_translate(prompt: str) -> str:
             max_tokens=300,
         )
         return resp.message.content[0].text.strip()
+    if GEMINI_API_KEY:
+        return _call_gemini_http(prompt)
     raise RuntimeError("No translation provider configured")
+
+
+def _call_groq_http(prompt: str, max_tokens: int = 300, temperature: float = 0.4) -> str:
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=45)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def _call_gemini_http(prompt: str) -> str:
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 512,
+        },
+    }
+    resp = requests.post(url, json=payload, timeout=45)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as exc:
+        raise RuntimeError(f"Unexpected Gemini response: {str(exc)}") from exc
 
 def _extract_retry_seconds(err_text: str) -> int:
     for pat in [
@@ -245,6 +347,55 @@ pose = mp_pose.Pose(
     min_tracking_confidence=0.5,
 )
 
+# ═══════════════════════════════════════════
+# LIP MODEL LOADING (optional — graceful if missing)
+# ═══════════════════════════════════════════
+_lip_interpreter = None
+_lip_input_details  = None
+_lip_output_details = None
+_lip_mean  = None
+_lip_scale = None
+lip_labels = np.array([])
+LIP_MODEL_AVAILABLE = False
+
+try:
+    if os.path.exists(LIP_MODEL_PATH) and os.path.exists(LIP_SCALER_JSON) and os.path.exists(LIP_LABELS_JSON):
+        with open(LIP_SCALER_JSON, "r", encoding="utf-8") as f:
+            _lsc = json.load(f)
+        _lip_mean  = np.array(_lsc["mean"],  dtype=np.float32)
+        _lip_scale = np.array(_lsc["scale"], dtype=np.float32)
+        _lip_scale = np.where(_lip_scale == 0.0, 1.0, _lip_scale)
+
+        with open(LIP_LABELS_JSON, "r", encoding="utf-8") as f:
+            lip_labels = np.array(json.load(f))
+
+        _lip_interpreter = tf.lite.Interpreter(model_path=LIP_MODEL_PATH)
+        _lip_interpreter.allocate_tensors()
+        _lip_input_details  = _lip_interpreter.get_input_details()
+        _lip_output_details = _lip_interpreter.get_output_details()
+        LIP_MODEL_AVAILABLE = True
+        print(f"✅  Lip model loaded: {LIP_MODEL_PATH}  ({len(lip_labels)} classes: {list(lip_labels)})")
+    else:
+        missing = [p for p in [LIP_MODEL_PATH, LIP_SCALER_JSON, LIP_LABELS_JSON] if not os.path.exists(p)]
+        print(f"⚠️  Lip model not loaded — missing files: {missing}")
+        print("   Run lip_train.py to generate them, then restart.")
+except Exception as _e:
+    print(f"⚠️  Lip model load error: {_e}")
+
+# MediaPipe FaceMesh for lip reading
+mp_face_mesh = mp.solutions.face_mesh
+_face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
+)
+
+# Per-client lip buffers
+lip_buffers: Dict[str, deque]     = {}
+lip_prev_kp: Dict[str, np.ndarray] = {}
+lip_state:   Dict[str, dict]       = {}   # stillness_counter, cooldown_until
+
 client_buffers: Dict[str, deque] = {}
 # Stores the previous keypoint vector per client for motion delta calculation
 client_prev_kp: Dict[str, np.ndarray] = {}
@@ -301,6 +452,38 @@ def decode_image(data_url: str) -> np.ndarray:
     if frame_bgr is None:
         raise ValueError("Invalid image data")
     return frame_bgr
+
+
+# ═══════════════════════════════════════════
+# LIP READING HELPERS
+# ═══════════════════════════════════════════
+def normalise_lip_frame(frame: np.ndarray) -> np.ndarray:
+    """Centre + scale one (90,) lip landmark frame."""
+    pts = frame.reshape(30, 3).copy()
+    centre = pts.mean(axis=0)
+    pts -= centre
+    width = pts[:, 0].max() - pts[:, 0].min()
+    if width > 1e-6:
+        pts /= width
+    return pts.flatten().astype(np.float32)
+
+
+def extract_lip_landmarks(face_landmarks) -> np.ndarray:
+    """Return normalised (90,) lip landmark vector, or zeros."""
+    if face_landmarks is None:
+        return np.zeros(LIP_N_FEATURES, dtype=np.float32)
+    pts = []
+    for idx in LIP_INDICES:
+        lm = face_landmarks.landmark[idx]
+        pts.extend([lm.x, lm.y, lm.z])
+    raw = np.array(pts, dtype=np.float32)
+    return normalise_lip_frame(raw)
+
+
+def compute_lip_motion(prev: np.ndarray | None, curr: np.ndarray) -> float:
+    if prev is None:
+        return 0.0
+    return float(np.linalg.norm(curr - prev))
 
 
 # ═══════════════════════════════════════════
@@ -853,6 +1036,57 @@ HTML = r"""<!DOCTYPE html>
     .cam-panel { grid-column: 1; grid-row: 1; }
     .right-panel { grid-column: 1; grid-row: 2; }
   }
+
+  /* ── MODE TAB SWITCHER ── */
+  .mode-tabs {
+    position: relative; z-index: 10;
+    display: flex; gap: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  .mode-tab {
+    padding: 12px 28px;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+  }
+  .mode-tab:hover { color: var(--text); }
+  .mode-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── LIP HUD ── */
+  .hud-face {
+    font-size: 0.6rem;
+    color: var(--muted);
+    background: rgba(0,0,0,0.6);
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .lip-word-strip {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    min-height: 44px; align-items: center;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .lip-word-chip {
+    padding: 4px 14px;
+    border-radius: 100px;
+    background: var(--surface2);
+    border: 1px solid var(--blue);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--blue);
+    animation: chipIn 0.25s ease;
+  }
 </style>
 </head>
 <body>
@@ -860,16 +1094,23 @@ HTML = r"""<!DOCTYPE html>
 <header>
   <div class="logo">
     <span class="logo-mark">Swaram</span>
-    <span class="logo-sub">Malayalam Sign Interpreter</span>
+    <span class="logo-sub">Sign &amp; Lip Interpreter</span>
   </div>
   <div class="header-pills">
     <span class="pill" id="pillLlm">LLM: —</span>
     <span class="pill" id="pillTts">TTS: —</span>
     <span class="pill" id="pillModel">Model: Loading…</span>
+    <span class="pill" id="pillLip">Lip: Loading…</span>
   </div>
 </header>
 
-<main>
+<div class="mode-tabs">
+  <button class="mode-tab active" id="tabSign" onclick="switchMode('sign')">✋ Sign Language</button>
+  <button class="mode-tab" id="tabLip" onclick="switchMode('lip')">👄 Lip Reading</button>
+</div>
+
+<!-- ══════════════════════ SIGN LANGUAGE MODE ══════════════════════ -->
+<main id="modeSign">
   <!-- ── CAMERA PANEL ── -->
   <div class="cam-panel">
     <div class="cam-wrap">
@@ -983,38 +1224,179 @@ HTML = r"""<!DOCTYPE html>
   </div>
 </main>
 
+<!-- ══════════════════════ LIP READING MODE ══════════════════════ -->
+<main id="modeLip" style="display:none">
+  <div class="cam-panel">
+    <div class="cam-wrap">
+      <video id="lipVideo" autoplay playsinline muted></video>
+      <canvas id="lipCanvas"></canvas>
+      <div class="hud">
+        <div class="hud-top">
+          <div class="hud-state idle" id="lipHudState">IDLE</div>
+          <div class="hud-frames" id="lipHudFrames">0 / 30 frames</div>
+          <div class="hud-face" id="lipHudFace">face: —</div>
+          <div class="hud-motion" id="lipHudMotion">motion: 0.000</div>
+        </div>
+        <div class="hud-pred">
+          <span id="lipPredLabel" style="color:var(--blue)">—</span>
+          <span id="lipPredConf"></span>
+          <div class="conf-bar-bg"><div id="lipConfBar" style="background:var(--blue)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn primary" id="lipBtnStart">▶ Start Camera</button>
+      <button class="btn" id="lipBtnSpeak" disabled>🔊 Speak Now</button>
+      <button class="btn danger" id="lipBtnClear" disabled>✕ Clear</button>
+      <button class="btn" id="lipBtnReset">↺ Reset Buffer</button>
+    </div>
+
+    <!-- Collected lip words -->
+    <div class="lip-word-strip" id="lipWordsStrip">
+      <span class="words-empty">Lip-read words will appear here…</span>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="right-panel">
+
+    <!-- Translation card (lip) -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot" id="lipLlmDot"></div>
+        Translation (Lip)
+      </div>
+      <div class="card-body">
+        <div class="sentence-en" id="lipSentEn">
+          <span class="sentence-placeholder">Waiting for lip words…</span>
+        </div>
+        <div class="sentence-ml" id="lipSentMl"></div>
+        <div class="audio-btn">
+          <button class="play-btn" id="lipPlayBtn" disabled title="Play Malayalam audio">▶</button>
+          <span class="audio-label" id="lipAudioLabel">No audio yet</span>
+        </div>
+        <audio id="lipAudioPlayer"></audio>
+      </div>
+      <div class="llm-status">
+        <div class="spinner" id="lipSpinner"></div>
+        <span id="lipLlmStatusText">Idle</span>
+      </div>
+    </div>
+
+    <!-- Top lip predictions card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot" id="lipPredDot"></div>
+        Top Lip Predictions
+      </div>
+      <div class="card-body">
+        <div class="top-preds" id="lipTopPreds">
+          <div class="sentence-placeholder" style="font-size:0.72rem">No prediction yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lip model status card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot" id="lipModelDot"></div>
+        Lip Model
+      </div>
+      <div class="settings-grid">
+        <div class="setting-item">
+          <span class="setting-label">Status</span>
+          <span class="setting-value" id="lipModelStatus">Checking…</span>
+        </div>
+        <div class="setting-item">
+          <span class="setting-label">Threshold</span>
+          <span class="setting-value">80%</span>
+        </div>
+        <div class="setting-item">
+          <span class="setting-label">Sequence</span>
+          <span class="setting-value">30 frames</span>
+        </div>
+        <div class="setting-item">
+          <span class="setting-label">Classes</span>
+          <span class="setting-value" id="lipClassCount">—</span>
+        </div>
+      </div>
+      <div id="lipModelNotice" style="padding:10px 16px;font-size:0.68rem;color:var(--accent);display:none">
+        ⚠️ Lip model not trained yet. Run:<br>
+        <code style="color:var(--blue)">python lip_collect.py</code><br>
+        <code style="color:var(--blue)">python lip_train.py</code>
+      </div>
+    </div>
+
+    <!-- Lip log -->
+    <div class="card" style="flex:1">
+      <div class="card-header">
+        <div class="card-dot active"></div>
+        Lip Activity Log
+      </div>
+      <div class="log" id="lipActLog">
+        <div class="log-entry"><span class="log-ts">—</span>Lip reader ready</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
 <footer>
-  <span>Swaram · Malayalam Sign Language Interpreter</span>
+  <span>Swaram · Sign &amp; Lip Interpreter · Malayalam</span>
   <span id="fpsDisplay">FPS: —</span>
 </footer>
 
 <script>
 'use strict';
-// ─── CONFIG ──────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════
 const CLIENT_ID       = 'client_' + Math.random().toString(36).slice(2, 9);
-const SEND_EVERY      = 100;    // ms between frame sends
-const AUTO_LLM_SEC    = 2.0;    // idle seconds before auto LLM trigger
-const MIN_AUTO_LLM    = 1;      // minimum words before auto-trigger
-const MOTION_THRESH   = 0.08;   // below this = no meaningful movement (raised from 0.03)
-const IDLE_CONFIRM_MS = 500;    // ms of consecutive low-motion to confirm IDLE
+const SEND_EVERY      = 100;
+const AUTO_LLM_SEC    = 2.0;
+const MIN_AUTO_LLM    = 1;
+const MOTION_THRESH   = 0.08;
+const IDLE_CONFIRM_MS = 500;
 
-// ─── STATE ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// MODE SWITCHER
+// ═══════════════════════════════════════════════════════════════
+let currentMode = 'sign';   // 'sign' | 'lip'
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('modeSign').style.display = mode === 'sign' ? '' : 'none';
+  document.getElementById('modeLip').style.display  = mode === 'lip'  ? '' : 'none';
+  document.getElementById('tabSign').classList.toggle('active', mode === 'sign');
+  document.getElementById('tabLip').classList.toggle('active',  mode === 'lip');
+
+  // Stop whichever camera is running when switching modes
+  if (mode === 'sign' && lipStreaming) stopLipStreaming();
+  if (mode === 'lip'  && streaming)   stopStreaming();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SIGN LANGUAGE MODE ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+// ── State ──────────────────────────────────────────────────────
 let streaming        = false;
 let sendTimer        = null;
 let words            = [];
 let lastSignTime     = 0;
-let silenceTimer     = null;     // fires LLM after 2s idle
-let idleCountTimer   = null;     // updates the on-screen countdown
-let idleStartTime    = 0;        // when we first went idle (ms)
-let isIdle           = true;     // current motion state
-let idleLowCount     = 0;        // consecutive low-motion frames
+let silenceTimer     = null;
+let idleCountTimer   = null;
+let isIdle           = true;
+let idleLowCount     = 0;
 let llmBusy          = false;
-let silenceTriggered = false;    // prevent double-trigger per idle period
+let silenceTriggered = false;
 let currentAudio     = null;
 let fpsHistory       = [];
 let lastFpsTime      = performance.now();
 
-// ─── DOM ─────────────────────────────────────────────────────────────────────
+// ── DOM refs ───────────────────────────────────────────────────
 const video       = document.getElementById('video');
 const canvas      = document.getElementById('canvas');
 const ctx         = canvas.getContext('2d');
@@ -1047,24 +1429,47 @@ const pillModel   = document.getElementById('pillModel');
 const sysLlm      = document.getElementById('sysLlm');
 const sysTts      = document.getElementById('sysTts');
 
-// ─── INIT ─────────────────────────────────────────────────────────────────────
+// ── INIT ──────────────────────────────────────────────────────
 (async () => {
   try {
     const r = await fetch('/status');
     const d = await r.json();
-    pillLlm.textContent = 'LLM: ' + (d.llm_provider || 'none');
-    pillLlm.className = 'pill ' + (d.llm_available ? 'ok' : 'warn');
-    pillTts.textContent = 'TTS: ' + (d.tts_available ? 'gTTS' : 'off');
-    pillTts.className = 'pill ' + (d.tts_available ? 'ok' : 'warn');
+    pillLlm.textContent   = 'LLM: ' + (d.llm_provider || 'none');
+    pillLlm.className     = 'pill ' + (d.llm_available ? 'ok' : 'warn');
+    pillTts.textContent   = 'TTS: ' + (d.tts_available ? 'gTTS' : 'off');
+    pillTts.className     = 'pill ' + (d.tts_available ? 'ok' : 'warn');
     pillModel.textContent = 'Model: ' + (d.model_loaded ? 'Ready' : 'Error');
-    pillModel.className = 'pill ' + (d.model_loaded ? 'ok' : 'err');
-    sysLlm.textContent = d.llm_provider || 'none';
-    sysTts.textContent = d.tts_available ? 'gTTS (Malayalam)' : 'Unavailable';
+    pillModel.className   = 'pill ' + (d.model_loaded ? 'ok' : 'err');
+    sysLlm.textContent    = d.llm_provider || 'none';
+    sysTts.textContent    = d.tts_available ? 'gTTS (Malayalam)' : 'Unavailable';
+
+    // Lip model pill
+    const pillLip        = document.getElementById('pillLip');
+    const lipModelStatus = document.getElementById('lipModelStatus');
+    const lipModelDot    = document.getElementById('lipModelDot');
+    const lipClassCount  = document.getElementById('lipClassCount');
+    const lipModelNotice = document.getElementById('lipModelNotice');
+
+    if (d.lip_model_available) {
+      pillLip.textContent       = 'Lip: Ready';
+      pillLip.className         = 'pill ok';
+      lipModelStatus.textContent = 'Loaded';
+      lipModelDot.className     = 'card-dot active';
+      lipClassCount.textContent = (d.lip_labels || []).length + ' classes';
+      lipModelNotice.style.display = 'none';
+    } else {
+      pillLip.textContent        = 'Lip: No Model';
+      pillLip.className          = 'pill warn';
+      lipModelStatus.textContent = 'Not trained';
+      lipModelDot.className      = 'card-dot err';
+      lipClassCount.textContent  = '—';
+      lipModelNotice.style.display = 'block';
+    }
     log('System initialized. LLM=' + (d.llm_provider||'none'), 'ok');
   } catch(e) { log('Status check failed: ' + e, 'err'); }
 })();
 
-// ─── CAMERA ──────────────────────────────────────────────────────────────────
+// ── Camera ────────────────────────────────────────────────────
 btnStart.addEventListener('click', async () => {
   if (streaming) { stopStreaming(); return; }
   try {
@@ -1076,7 +1481,6 @@ btnStart.addEventListener('click', async () => {
     btnStart.className = 'btn danger';
     log('Camera started', 'ok');
     startSending();
-    startPolling();
   } catch(e) {
     log('Camera error: ' + e.message, 'err');
     setHudState('error');
@@ -1097,7 +1501,6 @@ function stopStreaming() {
   log('Camera stopped', 'warn');
 }
 
-// ─── FRAME SENDING ────────────────────────────────────────────────────────────
 function startSending() {
   sendTimer = setInterval(sendFrame, SEND_EVERY);
 }
@@ -1105,20 +1508,16 @@ function startSending() {
 async function sendFrame() {
   if (!streaming) return;
   if (video.readyState < 2) return;
-
   canvas.width  = video.videoWidth  || 640;
   canvas.height = video.videoHeight || 480;
   ctx.drawImage(video, 0, 0);
   const imageData = canvas.toDataURL('image/jpeg', 0.7);
-
-  // FPS tracking
   const now = performance.now();
   fpsHistory.push(now - lastFpsTime);
   lastFpsTime = now;
   if (fpsHistory.length > 20) fpsHistory.shift();
   const avgMs = fpsHistory.reduce((a,b)=>a+b,0) / fpsHistory.length;
   fpsDisplay.textContent = 'FPS: ' + Math.round(1000 / avgMs);
-
   try {
     const r = await fetch('/predict', {
       method: 'POST',
@@ -1127,22 +1526,15 @@ async function sendFrame() {
     });
     const d = await r.json();
     handlePrediction(d);
-  } catch(e) {
-    // silent network errors
-  }
+  } catch(e) { /* silent */ }
 }
 
-// ─── MOTION + IDLE STATE MACHINE ─────────────────────────────────────────────
 function handlePrediction(d) {
   if (d.error) { setHudState('error'); return; }
-
   const handSeen = d.hand_detected ?? false;
   const motion   = d.motion ?? 0;
-
-  if (hudMotion) hudMotion.textContent = (handSeen ? '\u270b ' : '\u00b7 ') + 'motion: ' + motion.toFixed(3);
-
+  if (hudMotion) hudMotion.textContent = (handSeen ? '✋ ' : '· ') + 'motion: ' + motion.toFixed(3);
   if (handSeen) {
-    // HAND PRESENT -> cancel idle, mark active
     idleLowCount = 0;
     if (isIdle) {
       isIdle = false;
@@ -1152,38 +1544,30 @@ function handlePrediction(d) {
       idleCountEl.style.display = 'none';
     }
   } else {
-    // NO HAND -> count frames toward idle threshold
     idleLowCount++;
     if (!isIdle && idleLowCount * SEND_EVERY >= IDLE_CONFIRM_MS) {
-      // Confirmed idle — flip state and start countdown
       isIdle = true;
       setHudState('idle');
-      predLabel.textContent = '\u2014';
+      predLabel.textContent = '—';
       predConf.textContent  = '';
       confBar.style.width   = '0%';
       hudFrames.textContent = '0 / 30 frames';
       topPreds.innerHTML    = '<div class="sentence-placeholder" style="font-size:0.72rem">No prediction yet</div>';
       document.getElementById('predDot').className = 'card-dot';
-      if (words.length >= MIN_AUTO_LLM && !llmBusy && !silenceTriggered) {
-        startIdleCountdown();
-      }
+      if (words.length >= MIN_AUTO_LLM && !llmBusy && !silenceTriggered) startIdleCountdown();
     }
-    return; // no hand -> nothing more to process
+    return;
   }
-
-  // Hand is present: process prediction
   if (d.status === 'collecting') {
     setHudState('collecting');
     hudFrames.textContent = d.frames + ' / ' + d.needed + ' frames';
     return;
   }
-
   if (d.status === 'ok') {
     hudFrames.textContent = '30 / 30 frames';
     setHudState('active');
     renderTopPreds(d.top_predictions || []);
     document.getElementById('predDot').className = 'card-dot active';
-
     if (d.accepted) {
       const lbl  = d.prediction;
       const conf = d.confidence;
@@ -1191,7 +1575,6 @@ function handlePrediction(d) {
       predConf.textContent  = (conf * 100).toFixed(1) + '%';
       confBar.style.width   = (conf * 100) + '%';
       confBar.style.background = conf > 0.9 ? 'var(--green)' : 'var(--accent)';
-
       if (words.length === 0 || words[words.length - 1] !== lbl) {
         addWord(lbl);
         lastSignTime     = Date.now();
@@ -1204,25 +1587,16 @@ function handlePrediction(d) {
   }
 }
 
-// ─── IDLE COUNTDOWN → LLM TRIGGER ────────────────────────────────────────────
 function startIdleCountdown() {
   clearTimeout(silenceTimer);
   clearInterval(idleCountTimer);
-
   const deadline = Date.now() + AUTO_LLM_SEC * 1000;
   idleCountEl.style.display = 'block';
-
-  // Tick every 100ms to update countdown display
   idleCountTimer = setInterval(() => {
-    const remaining = (deadline - Date.now()) / 1000;
-    if (remaining <= 0) {
-      clearInterval(idleCountTimer);
-      idleCountEl.style.display = 'none';
-    } else {
-      idleCountEl.textContent = 'sending in ' + remaining.toFixed(1) + 's…';
-    }
+    const rem = (deadline - Date.now()) / 1000;
+    if (rem <= 0) { clearInterval(idleCountTimer); idleCountEl.style.display = 'none'; }
+    else idleCountEl.textContent = 'sending in ' + rem.toFixed(1) + 's…';
   }, 100);
-
   silenceTimer = setTimeout(async () => {
     clearInterval(idleCountTimer);
     idleCountEl.style.display = 'none';
@@ -1231,20 +1605,14 @@ function startIdleCountdown() {
       log('Idle 2s → auto LLM: ' + words.join(', '), 'ok');
       triggerLLM();
     }
-    // Always reset the frame buffer after a pause so stale frames don't
-    // contaminate the next sign sequence
     try {
-      await fetch('/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: CLIENT_ID }),
-      });
+      await fetch('/reset', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ client_id: CLIENT_ID }) });
       log('Frame buffer cleared after pause', 'warn');
     } catch(_) {}
   }, AUTO_LLM_SEC * 1000);
 }
 
-// ─── WORDS ───────────────────────────────────────────────────────────────────
 function addWord(w) {
   words.push(w);
   if (words.length > 10) words.shift();
@@ -1255,21 +1623,17 @@ function addWord(w) {
 }
 
 function renderWords() {
-  if (words.length === 0) {
+  if (!words.length) {
     wordsStrip.innerHTML = '<span class="words-empty">Recognized signs will appear here…</span>';
     btnSpeak.disabled = true;
     btnClear.disabled = true;
     return;
   }
-  wordsStrip.innerHTML = words.map(w =>
-    `<span class="word-chip">${w}</span>`
-  ).join('');
+  wordsStrip.innerHTML = words.map(w => `<span class="word-chip">${w}</span>`).join('');
 }
 
-// ─── LLM ─────────────────────────────────────────────────────────────────────
 function triggerLLM() {
   if (!words.length) return;
-  // Snapshot current words for the request, then immediately clear
   const snapshot = [...words];
   words = [];
   renderWords();
@@ -1281,15 +1645,12 @@ function triggerLLM() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ client_id: CLIENT_ID, words: snapshot }),
   })
-  .then(r => r.text().then(text => {
-    try { return JSON.parse(text); }
-    catch(_) { throw new Error('Server ' + r.status + ': non-JSON response'); }
-  }))
+  .then(r => r.text().then(t => { try { return JSON.parse(t); } catch(_) { throw new Error('Non-JSON'); } }))
   .then(d => {
     llmBusy = false;
     if (d.error) { setLlmStatus('error'); log('LLM error: ' + d.error, 'err'); return; }
     setLlmStatus('done');
-    sentEn.innerHTML = d.english  || '<span class="sentence-placeholder">No result</span>';
+    sentEn.innerHTML   = d.english   || '<span class="sentence-placeholder">No result</span>';
     sentMl.textContent = d.malayalam || '';
     log('EN: ' + (d.english || ''), 'ok');
     log('ML: ' + (d.malayalam || ''), 'ok');
@@ -1297,105 +1658,302 @@ function triggerLLM() {
       currentAudio = d.audio_b64;
       playBtn.disabled = false;
       audioLabel.textContent = 'Malayalam audio ready';
-      playAudio(d.audio_b64);
+      playAudio(d.audio_b64, audioEl);
     }
   })
-  .catch(e => {
-    llmBusy = false;
-    setLlmStatus('error');
-    log('LLM failed: ' + e.message, 'err');
-  });
+  .catch(e => { llmBusy = false; setLlmStatus('error'); log('LLM failed: ' + e.message, 'err'); });
 }
 
-function playAudio(b64) {
-  const src = 'data:audio/mpeg;base64,' + b64;
-  audioEl.src = src;
-  audioEl.play().catch(e => log('Audio play error: ' + e, 'warn'));
+function playAudio(b64, el) {
+  el.src = 'data:audio/mpeg;base64,' + b64;
+  el.play().catch(e => log('Audio play error: ' + e, 'warn'));
 }
 
-// ─── LLM STATUS POLLING ───────────────────────────────────────────────────────
-function startPolling() {
-  // No server-side state needed since LLM is synchronous per request
-}
-
-// ─── BUTTONS ─────────────────────────────────────────────────────────────────
-btnSpeak.addEventListener('click', () => {
-  if (words.length) { triggerLLM(); log('Manual speak triggered', 'ok'); }
-});
-
+btnSpeak.addEventListener('click', () => { if (words.length) { triggerLLM(); log('Manual speak triggered', 'ok'); } });
 btnClear.addEventListener('click', () => {
-  words = [];
-  renderWords();
-  predLabel.textContent = '—';
-  predConf.textContent  = '';
-  confBar.style.width   = '0%';
-  clearTimeout(silenceTimer);
-  clearInterval(idleCountTimer);
-  idleCountEl.style.display = 'none';
-  silenceTriggered = false;
+  words = []; renderWords();
+  predLabel.textContent = '—'; predConf.textContent = ''; confBar.style.width = '0%';
+  clearTimeout(silenceTimer); clearInterval(idleCountTimer);
+  idleCountEl.style.display = 'none'; silenceTriggered = false;
   log('Cleared word buffer', 'warn');
 });
-
 btnReset.addEventListener('click', async () => {
-  words = [];
-  renderWords();
-  clearTimeout(silenceTimer);
-  clearInterval(idleCountTimer);
-  idleCountEl.style.display = 'none';
-  silenceTriggered = false;
-  await fetch('/reset', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ client_id: CLIENT_ID }),
-  });
+  words = []; renderWords();
+  clearTimeout(silenceTimer); clearInterval(idleCountTimer);
+  idleCountEl.style.display = 'none'; silenceTriggered = false;
+  await fetch('/reset', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ client_id: CLIENT_ID }) });
   log('Frame buffer reset', 'warn');
 });
-
-playBtn.addEventListener('click', () => {
-  if (currentAudio) playAudio(currentAudio);
-});
+playBtn.addEventListener('click', () => { if (currentAudio) playAudio(currentAudio, audioEl); });
 
 function setHudState(s) {
   hudState.className = 'hud-state ' + s;
-  const labels = { idle:'IDLE', collecting:'COLLECTING', active:'ACTIVE', ready:'READY', error:'ERROR' };
-  hudState.textContent = labels[s] || s.toUpperCase();
+  const L = { idle:'IDLE', collecting:'COLLECTING', active:'ACTIVE', ready:'READY', error:'ERROR' };
+  hudState.textContent = L[s] || s.toUpperCase();
 }
-
-// ─── LLM STATUS POLLING ─────────────────────────────────────────────────────
-function startPolling() { /* LLM is synchronous per request — no polling needed */ }
-
 function setLlmStatus(s) {
-  const labels = { idle:'Idle', thinking:'Processing…', done:'Done', error:'Error' };
-  llmStatus.textContent = labels[s] || s;
+  const L = { idle:'Idle', thinking:'Processing…', done:'Done', error:'Error' };
+  llmStatus.textContent = L[s] || s;
   spinner.style.display = s === 'thinking' ? 'block' : 'none';
   llmDot.className = 'card-dot' + (s==='thinking'?' busy': s==='done'?' active': s==='error'?' err':'');
 }
-
-function renderTopPreds(preds) {
+function renderTopPreds(preds, container) {
+  const el = container || topPreds;
   if (!preds || !preds.length) return;
-  topPreds.innerHTML = preds.map(p => {
+  el.innerHTML = preds.map(p => {
     const pct = (p.confidence * 100).toFixed(1);
-    return `
-      <div class="top-pred-row">
-        <span class="top-pred-label">${p.label}</span>
-        <div class="top-pred-bar-bg">
-          <div class="top-pred-bar" style="width:${pct}%"></div>
-        </div>
-        <span class="top-pred-pct">${pct}%</span>
-      </div>`;
+    return `<div class="top-pred-row">
+      <span class="top-pred-label">${p.label}</span>
+      <div class="top-pred-bar-bg"><div class="top-pred-bar" style="width:${pct}%"></div></div>
+      <span class="top-pred-pct">${pct}%</span></div>`;
   }).join('');
 }
-
-function log(msg, type) {
-  const ts = new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+function log(msg, type, logEl) {
+  const el = logEl || actLog;
+  const ts  = new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
   const cls = type === 'ok' ? 'log-ok' : type === 'warn' ? 'log-warn' : type === 'err' ? 'log-err' : '';
-  const el = document.createElement('div');
-  el.className = 'log-entry';
-  el.innerHTML = `<span class="log-ts">${ts}</span><span class="${cls}">${msg}</span>`;
-  actLog.prepend(el);
-  // Keep max 40 entries
-  while (actLog.children.length > 40) actLog.removeChild(actLog.lastChild);
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-ts">${ts}</span><span class="${cls}">${msg}</span>`;
+  el.prepend(div);
+  while (el.children.length > 40) el.removeChild(el.lastChild);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// ── LIP READING MODE ───────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const lipVideo      = document.getElementById('lipVideo');
+const lipCanvas     = document.getElementById('lipCanvas');
+const lipCtx        = lipCanvas.getContext('2d');
+const lipHudState   = document.getElementById('lipHudState');
+const lipHudFrames  = document.getElementById('lipHudFrames');
+const lipHudFace    = document.getElementById('lipHudFace');
+const lipHudMotion  = document.getElementById('lipHudMotion');
+const lipPredLabel  = document.getElementById('lipPredLabel');
+const lipPredConf   = document.getElementById('lipPredConf');
+const lipConfBar    = document.getElementById('lipConfBar');
+const lipWordsStrip = document.getElementById('lipWordsStrip');
+const lipBtnStart   = document.getElementById('lipBtnStart');
+const lipBtnSpeak   = document.getElementById('lipBtnSpeak');
+const lipBtnClear   = document.getElementById('lipBtnClear');
+const lipBtnReset   = document.getElementById('lipBtnReset');
+const lipSentEn     = document.getElementById('lipSentEn');
+const lipSentMl     = document.getElementById('lipSentMl');
+const lipPlayBtn    = document.getElementById('lipPlayBtn');
+const lipAudioLabel = document.getElementById('lipAudioLabel');
+const lipAudioEl    = document.getElementById('lipAudioPlayer');
+const lipLlmDot     = document.getElementById('lipLlmDot');
+const lipLlmStatus  = document.getElementById('lipLlmStatusText');
+const lipSpinner    = document.getElementById('lipSpinner');
+const lipTopPreds   = document.getElementById('lipTopPreds');
+const lipActLog     = document.getElementById('lipActLog');
+const lipPredDot    = document.getElementById('lipPredDot');
+
+let lipStreaming    = false;
+let lipSendTimer   = null;
+let lipWords       = [];
+let lipLlmBusy     = false;
+let lipSilTimer    = null;
+let lipSilTriggered= false;
+let lipCurrentAudio= null;
+let lipLastFpsTime = performance.now();
+let lipFpsHistory  = [];
+
+// Lip camera start/stop
+lipBtnStart.addEventListener('click', async () => {
+  if (lipStreaming) { stopLipStreaming(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    lipVideo.srcObject = stream;
+    await lipVideo.play();
+    lipStreaming = true;
+    lipBtnStart.textContent = '⏹ Stop Camera';
+    lipBtnStart.className = 'btn danger';
+    lipLog('Lip camera started', 'ok');
+    lipSendTimer = setInterval(sendLipFrame, SEND_EVERY);
+  } catch(e) {
+    lipLog('Camera error: ' + e.message, 'err');
+    setLipHudState('error');
+  }
+});
+
+function stopLipStreaming() {
+  lipStreaming = false;
+  clearInterval(lipSendTimer);
+  clearTimeout(lipSilTimer);
+  if (lipVideo.srcObject) lipVideo.srcObject.getTracks().forEach(t => t.stop());
+  lipVideo.srcObject = null;
+  lipBtnStart.textContent = '▶ Start Camera';
+  lipBtnStart.className = 'btn primary';
+  setLipHudState('idle');
+  lipLog('Lip camera stopped', 'warn');
+}
+
+async function sendLipFrame() {
+  if (!lipStreaming) return;
+  if (lipVideo.readyState < 2) return;
+  lipCanvas.width  = lipVideo.videoWidth  || 640;
+  lipCanvas.height = lipVideo.videoHeight || 480;
+  lipCtx.drawImage(lipVideo, 0, 0);
+  const imageData = lipCanvas.toDataURL('image/jpeg', 0.7);
+
+  // FPS
+  const now = performance.now();
+  lipFpsHistory.push(now - lipLastFpsTime);
+  lipLastFpsTime = now;
+  if (lipFpsHistory.length > 20) lipFpsHistory.shift();
+  const avgMs = lipFpsHistory.reduce((a,b)=>a+b,0) / lipFpsHistory.length;
+  fpsDisplay.textContent = 'FPS: ' + Math.round(1000 / avgMs);
+
+  try {
+    const r = await fetch('/lip_predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: CLIENT_ID, image: imageData }),
+    });
+    const d = await r.json();
+    handleLipPrediction(d);
+  } catch(e) { /* silent */ }
+}
+
+function handleLipPrediction(d) {
+  if (d.error) {
+    setLipHudState('error');
+    lipLog('Lip error: ' + d.error, 'err');
+    return;
+  }
+
+  const faceOk = d.face_detected ?? false;
+  const motion  = d.motion ?? 0;
+
+  lipHudFace.textContent   = faceOk ? '😊 face: ✓' : '· face: ✗';
+  lipHudMotion.textContent = 'motion: ' + motion.toFixed(3);
+  lipHudFrames.textContent = (d.frames || 0) + ' / ' + (d.needed || 30) + ' frames';
+
+  if (d.status === 'no_face') {
+    setLipHudState('idle');
+    lipPredLabel.textContent = '—';
+    lipPredConf.textContent  = '';
+    lipConfBar.style.width   = '0%';
+    return;
+  }
+  if (d.status === 'cooldown') {
+    setLipHudState('ready');
+    return;
+  }
+  if (d.status === 'collecting') {
+    setLipHudState('collecting');
+    return;
+  }
+  if (d.status === 'ok') {
+    setLipHudState('active');
+    renderTopPreds(d.top_predictions || [], lipTopPreds);
+    lipPredDot.className = 'card-dot active';
+
+    if (d.accepted) {
+      const lbl  = d.prediction;
+      const conf = d.confidence;
+      lipPredLabel.textContent = lbl;
+      lipPredConf.textContent  = (conf * 100).toFixed(1) + '%';
+      lipConfBar.style.width   = (conf * 100) + '%';
+
+      if (lipWords.length === 0 || lipWords[lipWords.length - 1] !== lbl) {
+        lipWords.push(lbl);
+        if (lipWords.length > 10) lipWords.shift();
+        renderLipWords();
+        lipBtnSpeak.disabled = false;
+        lipBtnClear.disabled = false;
+        lipLog('Lip-read: ' + lbl + ' (' + (conf * 100).toFixed(1) + '%)', 'ok');
+        lipSilTriggered = false;
+
+        // Auto-LLM after silence
+        clearTimeout(lipSilTimer);
+        lipSilTimer = setTimeout(() => {
+          if (lipWords.length >= MIN_AUTO_LLM && !lipLlmBusy && !lipSilTriggered) {
+            lipSilTriggered = true;
+            lipLog('Auto LLM: ' + lipWords.join(', '), 'ok');
+            triggerLipLLM();
+          }
+        }, AUTO_LLM_SEC * 1000);
+      }
+    } else {
+      lipLog('Low confidence (' + (d.confidence * 100).toFixed(1) + '%) — discarded', 'warn');
+    }
+  }
+}
+
+function renderLipWords() {
+  if (!lipWords.length) {
+    lipWordsStrip.innerHTML = '<span class="words-empty">Lip-read words will appear here…</span>';
+    lipBtnSpeak.disabled = true;
+    lipBtnClear.disabled = true;
+    return;
+  }
+  lipWordsStrip.innerHTML = lipWords.map(w => `<span class="lip-word-chip">${w}</span>`).join('');
+}
+
+function triggerLipLLM() {
+  if (!lipWords.length) return;
+  const snapshot = [...lipWords];
+  lipWords = [];
+  renderLipWords();
+  lipSilTriggered = false;
+  lipLlmBusy = true;
+  setLipLlmStatus('thinking');
+  fetch('/llm', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ client_id: CLIENT_ID + '_lip', words: snapshot }),
+  })
+  .then(r => r.text().then(t => { try { return JSON.parse(t); } catch(_) { throw new Error('Non-JSON'); } }))
+  .then(d => {
+    lipLlmBusy = false;
+    if (d.error) { setLipLlmStatus('error'); lipLog('LLM error: ' + d.error, 'err'); return; }
+    setLipLlmStatus('done');
+    lipSentEn.innerHTML    = d.english   || '<span class="sentence-placeholder">No result</span>';
+    lipSentMl.textContent  = d.malayalam || '';
+    lipLog('EN: ' + (d.english || ''), 'ok');
+    lipLog('ML: ' + (d.malayalam || ''), 'ok');
+    if (d.audio_b64) {
+      lipCurrentAudio = d.audio_b64;
+      lipPlayBtn.disabled = false;
+      lipAudioLabel.textContent = 'Malayalam audio ready';
+      playAudio(d.audio_b64, lipAudioEl);
+    }
+  })
+  .catch(e => { lipLlmBusy = false; setLipLlmStatus('error'); lipLog('LLM failed: ' + e.message, 'err'); });
+}
+
+lipBtnSpeak.addEventListener('click', () => { if (lipWords.length) { triggerLipLLM(); } });
+lipBtnClear.addEventListener('click', () => {
+  lipWords = []; renderLipWords();
+  lipPredLabel.textContent = '—'; lipPredConf.textContent = ''; lipConfBar.style.width = '0%';
+  clearTimeout(lipSilTimer); lipSilTriggered = false;
+  lipLog('Cleared lip word buffer', 'warn');
+});
+lipBtnReset.addEventListener('click', async () => {
+  lipWords = []; renderLipWords();
+  clearTimeout(lipSilTimer); lipSilTriggered = false;
+  await fetch('/lip_reset', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ client_id: CLIENT_ID }) });
+  lipLog('Lip buffer reset', 'warn');
+});
+lipPlayBtn.addEventListener('click', () => { if (lipCurrentAudio) playAudio(lipCurrentAudio, lipAudioEl); });
+
+function setLipHudState(s) {
+  lipHudState.className = 'hud-state ' + s;
+  const L = { idle:'IDLE', collecting:'COLLECTING', active:'ACTIVE', ready:'COOLDOWN', error:'ERROR' };
+  lipHudState.textContent = L[s] || s.toUpperCase();
+}
+function setLipLlmStatus(s) {
+  const L = { idle:'Idle', thinking:'Processing…', done:'Done', error:'Error' };
+  lipLlmStatus.textContent = L[s] || s;
+  lipSpinner.style.display = s === 'thinking' ? 'block' : 'none';
+  lipLlmDot.className = 'card-dot' + (s==='thinking'?' busy': s==='done'?' active': s==='error'?' err':'');
+}
+function lipLog(msg, type) { log(msg, type, lipActLog); }
 </script>
 </body>
 </html>"""
@@ -1409,11 +1967,13 @@ def index():
 @app.get("/status")
 def status():
     return jsonify({
-        "llm_provider":  LLM_PROVIDER or "none",
-        "llm_available": LLM_AVAILABLE,
-        "tts_available": TTS_AVAILABLE,
-        "model_loaded":  True,
-        "labels":        labels.tolist(),
+        "llm_provider":       LLM_PROVIDER or "none",
+        "llm_available":      LLM_AVAILABLE,
+        "tts_available":      TTS_AVAILABLE,
+        "model_loaded":       True,
+        "labels":             labels.tolist(),
+        "lip_model_available": LIP_MODEL_AVAILABLE,
+        "lip_labels":         lip_labels.tolist(),
     })
 
 
@@ -1495,6 +2055,149 @@ def predict():
     except Exception as exc:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/lip_predict")
+def lip_predict():
+    """
+    Lip reading endpoint.
+    Accepts { client_id, image } and returns a prediction from the lip model.
+    Uses a motion-gated state machine (IDLE → CAPTURING → PREDICTING → COOLDOWN).
+    """
+    if not LIP_MODEL_AVAILABLE:
+        return jsonify({"error": "Lip model not loaded. Run lip_train.py first."}), 503
+
+    payload    = request.get_json(silent=True) or {}
+    client_id  = "lip_" + str(payload.get("client_id", "default"))
+    image_data = payload.get("image")
+
+    if not image_data or not isinstance(image_data, str) or len(image_data) < 100:
+        return jsonify({"error": "Missing or invalid image"}), 400
+
+    try:
+        frame_bgr = decode_image(image_data)
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+        # Run FaceMesh
+        results = _face_mesh.process(frame_rgb)
+        face_detected = results.multi_face_landmarks is not None
+        face_lm = results.multi_face_landmarks[0] if face_detected else None
+
+        kp = extract_lip_landmarks(face_lm)
+        motion_val = compute_lip_motion(lip_prev_kp.get(client_id), kp)
+        if face_detected:
+            lip_prev_kp[client_id] = kp.copy()
+
+        # Init per-client state
+        if client_id not in lip_buffers:
+            lip_buffers[client_id] = deque(maxlen=LIP_SEQUENCE_LEN)
+        if client_id not in lip_state:
+            lip_state[client_id] = {"stillness": 0, "cooldown_until": 0.0}
+
+        st = lip_state[client_id]
+        now = time.time()
+
+        # Cooldown guard
+        if now < st["cooldown_until"]:
+            return jsonify({
+                "status":        "cooldown",
+                "face_detected": face_detected,
+                "motion":        round(motion_val, 4),
+                "frames":        len(lip_buffers[client_id]),
+                "needed":        LIP_SEQUENCE_LEN,
+            })
+
+        # No face: clear buffer
+        if not face_detected:
+            lip_buffers[client_id].clear()
+            st["stillness"] = 0
+            return jsonify({
+                "status":        "no_face",
+                "face_detected": False,
+                "motion":        0.0,
+                "frames":        0,
+                "needed":        LIP_SEQUENCE_LEN,
+            })
+
+        # Stillness gating
+        if motion_val < LIP_MOTION_THRESHOLD:
+            st["stillness"] += 1
+        else:
+            st["stillness"] = 0
+
+        buf = lip_buffers[client_id]
+        buf.append(kp)
+
+        buffer_full    = len(buf) >= LIP_SEQUENCE_LEN
+        signer_stopped = (st["stillness"] >= LIP_STILLNESS_FRAMES
+                          and len(buf) >= LIP_MIN_CAPTURE)
+
+        # Not ready yet
+        if not buffer_full and not signer_stopped:
+            return jsonify({
+                "status":        "collecting",
+                "face_detected": face_detected,
+                "motion":        round(motion_val, 4),
+                "frames":        len(buf),
+                "needed":        LIP_SEQUENCE_LEN,
+            })
+
+        # ── Run inference ──────────────────────────────────────────────
+        seq = np.array(list(buf), dtype=np.float32)
+        if len(seq) < LIP_SEQUENCE_LEN:
+            pad = np.repeat(seq[-1][np.newaxis, :], LIP_SEQUENCE_LEN - len(seq), axis=0)
+            seq = np.concatenate([seq, pad], axis=0)
+        else:
+            seq = seq[:LIP_SEQUENCE_LEN]
+
+        # Scale using lip scaler
+        flat   = seq.reshape(-1, LIP_N_FEATURES)
+        scaled = (flat - _lip_mean) / _lip_scale
+        inp    = scaled.reshape(1, LIP_SEQUENCE_LEN, LIP_N_FEATURES).astype(np.float32)
+
+        _lip_interpreter.set_tensor(_lip_input_details[0]["index"], inp)
+        _lip_interpreter.invoke()
+        output = _lip_interpreter.get_tensor(_lip_output_details[0]["index"])[0]
+
+        pred_idx   = int(np.argmax(output))
+        confidence = float(output[pred_idx])
+
+        top_idx = np.argsort(output)[::-1][:3]
+        top_preds = [
+            {"label": str(lip_labels[i]), "confidence": float(output[i])}
+            for i in top_idx
+        ]
+
+        # Reset buffer + set cooldown
+        lip_buffers[client_id].clear()
+        st["stillness"]      = 0
+        st["cooldown_until"] = now + LIP_COOLDOWN_SEC
+
+        accepted = confidence >= LIP_THRESHOLD
+        return jsonify({
+            "status":          "ok",
+            "prediction":      str(lip_labels[pred_idx]),
+            "confidence":      confidence,
+            "accepted":        accepted,
+            "top_predictions": top_preds,
+            "face_detected":   face_detected,
+            "motion":          round(motion_val, 4),
+        })
+
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/lip_reset")
+def lip_reset():
+    payload   = request.get_json(silent=True) or {}
+    client_id = "lip_" + str(payload.get("client_id", "default"))
+    lip_buffers[client_id] = deque(maxlen=LIP_SEQUENCE_LEN)
+    lip_prev_kp.pop(client_id, None)
+    if client_id in lip_state:
+        lip_state[client_id] = {"stillness": 0, "cooldown_until": 0.0}
+    return jsonify({"status": "reset"})
 
 
 @app.post("/llm")

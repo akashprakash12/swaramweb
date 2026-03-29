@@ -6,17 +6,41 @@ __pycache__/
 # Local Python environments
 convertenv/
 signenv/
+signenv2/
+.venv/
+venv/
+env/
 
 # Training data and derived artifacts not needed by the web app repo
 dataset/
+lip_dataset/
 model.h5
+model.tflite
 scaler.pkl
+scaler.json
+labels.json
 training_history.png
+lip_model.h5
+lip_model.tflite
+lip_scaler.pkl
+lip_scaler.json
+lip_labels.json
+lip_bilstm_model.h5
+lip_bilstm_scaler.pkl
+lip_bilstm_scaler.json
+lip_bilstm_labels.json
+lip_bilstm_training_history.png
+lip_training_history.png
+lip_collection_log.csv
+*.npy
 
 # Mobile app sources and exports
 mobile-app/
 mobile-app-export/
 static/
+
+# Frontend dependency cache
+node_modules/
 
 # Training and debugging scripts excluded from the site-only repository
 check_tflite.py
