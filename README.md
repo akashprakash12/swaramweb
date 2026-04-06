@@ -1,14 +1,40 @@
-# Malayalam Sign Language Interpreter
+# 👐 Swaram: A Sign Language Recognition System with Lip-Reading Support
 
-Real-time sign and lip-reading interpreter built with Flask, MediaPipe, and TensorFlow Lite.
+> **Bachelor of Technology Project**  
+> *Department of Computer Science & Engineering*  
+> *Government Engineering College Idukki*
 
-This project supports:
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange.svg)](https://www.tensorflow.org/)
+[![Flask](https://img.shields.io/badge/Flask-2.x-green.svg)](https://flask.palletsprojects.com/)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10-red.svg)](https://mediapipe.dev/)
 
-- Hand-sign recognition from webcam frames
-- Lip-reading recognition with a separate model
-- Sentence generation and Malayalam translation via LLM providers
-- Malayalam text-to-speech audio output (gTTS)
-- Model export pipeline for React Native mobile app assets
+🔗 **GitHub Repository:** [akashprakash12/swaramweb](https://github.com/akashprakash12/swaramweb)
+
+## 📖 Overview
+
+**Swaram** is an intelligent assistive communication system designed to help individuals with hearing or speech impairments by converting visual communication into understandable text and speech. The system focuses on **real-time sign language recognition** with an experimental lip-reading module as a supplementary feature.
+
+The core system uses **MediaPipe** for hand landmark detection and an **LSTM-based model** for gesture classification, achieving reliable sign language interpretation. An experimental lip-reading module was implemented using **3D CNN** and **BiLSTM** networks, though it showed limited accuracy due to challenges in visually distinguishing speech patterns, especially in Malayalam.
+
+Recognized outputs are processed through an **NLP module** for sentence generation and converted to speech via **Text-to-Speech (TTS)**, all deployable as both web and mobile applications.
+
+## 🎯 Motivation
+
+Communication barriers significantly affect social inclusion and quality of life for individuals with hearing or speech impairments. While sign language is their primary means of communication, most people are not trained to understand it.
+
+Recent advances in computer vision and deep learning—such as CNNs, RNNs, and real-time tracking frameworks—make it possible to build intelligent systems that interpret visual communication. Swaram aims to bridge this gap by providing a reliable, real-time sign language recognition system with accessible text and speech output.
+
+## ⚠️ Problem Statement
+
+Individuals with hearing and speech impairments face significant communication barriers in daily interactions, including public services, education, and workplaces. Most existing solutions focus on either sign language recognition or lip-reading independently—not as an integrated system.
+
+Lip-reading systems face particular challenges in accurately interpreting speech due to limited visual information, especially for languages like Malayalam where many sounds are not clearly distinguishable through lip movements alone.
+
+**Swaram addresses this by:**
+- ✅ Effectively recognizing sign language gestures
+- ✅ Converting them into meaningful textual and spoken output
+- ✅ Exploring lip-reading as a supplementary feature for future integration
 
 ## Project Structure
 
@@ -174,10 +200,5 @@ python app2.py
 - If TTS fails: ensure `gtts` is installed and internet access is available.
 - If MediaPipe/TensorFlow conflict appears: keep versions pinned in `requirements.txt`.
 
-## Security Note
 
-If API keys were ever committed in source files, rotate/revoke them immediately and use environment variables instead.
 
-## License
-
-Add your preferred license in a `LICENSE` file.
